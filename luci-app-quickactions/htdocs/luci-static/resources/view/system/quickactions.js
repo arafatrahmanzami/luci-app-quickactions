@@ -14,6 +14,7 @@ return view.extend({
     callInitStatus: null,
     callSystemCommand: null,
     activeTab: 'dashboard',
+    configRendered: false,
 
     load: function() {
         var self = this;
@@ -64,14 +65,11 @@ return view.extend({
             'opkg list-installed | grep "^luci-theme-" | sed "s/ .*//"'
         ]).then(function(result) {
             var output = result.stdout || '';
-            var themes = output.split('\n')
+            return output.split('\n')
                 .map(function(line) { return line.trim(); })
                 .filter(function(line) { return line.length > 0; })
                 .map(function(pkg) { return pkg.replace(/^luci-theme-/, ''); });
-            return themes;
-        }).catch(function() {
-            return [];
-        });
+        }).catch(function() { return []; });
     },
 
     handleThemeSwitch: function(themeKey) {
@@ -148,11 +146,8 @@ return view.extend({
             ui.addNotification(buttonName + ' Done', pre, 'info');
             var notif = document.getElementById(uid);
             if (notif) {
-                var container = notif.closest ? notif.closest('.alert') : null;
-                if (container) {
-                    container.style.maxWidth = '95%';
-                    container.style.width = 'auto';
-                }
+                var c = notif.closest ? notif.closest('.alert') : null;
+                if (c) { c.style.maxWidth = '95%'; c.style.width = 'auto'; }
             }
             self.updateAllButtonsRealtime();
         }).catch(function(err) {
@@ -164,14 +159,11 @@ return view.extend({
     },
 
     handleButtonClick: function(commandStr, buttonName, btnElement) {
-        var self = this;
         if (btnElement.getAttribute('data-executing') === 'true') return;
         var info = this.getServiceInfo(buttonName);
         if (info && info.dangerous) {
-            var confirmed = confirm('Warning: Triggering high-risk operation (' + buttonName + ').\nAre you sure you want to run this? It could disrupt active network traffic.');
-            if (confirmed) {
-                this.executeValidatedCommand(commandStr, buttonName, btnElement);
-            }
+            var confirmed = confirm('Warning: Triggering high-risk operation (' + buttonName + ').\nAre you sure?');
+            if (confirmed) this.executeValidatedCommand(commandStr, buttonName, btnElement);
         } else {
             this.executeValidatedCommand(commandStr, buttonName, btnElement);
         }
@@ -206,7 +198,6 @@ return view.extend({
         }).catch(function(){});
     },
 
-    // Render the configuration form (copied from quickactions_config.js)
     renderConfig: function() {
         var m, s, o, s2;
         m = new form.Map('quickactions', _('Quick Actions Core Configuration'),
@@ -226,7 +217,7 @@ return view.extend({
         s2.addremove = true;
         s2.option(form.Value, 'keyword', _('Label Keyword'), _('Trigger text found in button name (case-insensitive).'));
         s2.option(form.Value, 'service', _('Target System Service'), _('The official background init script name.'));
-        o = s2.option(form.Value, 'icon', _('Custom Icon / Emoji'), _('Paste a single emoji icon to prepend to matching buttons (e.g., 🌐, 🔒, ⚡).'));
+        o = s2.option(form.Value, 'icon', _('Custom Icon / Emoji'), _('Paste a single emoji icon to prepend to matching buttons.'));
         o.placeholder = '⚙️';
         o = s2.option(form.Flag, 'dangerous', _('Require Confirmation'),
             _('If enabled, forcing a warning popup before running the script to prevent accidental downtime.'));
@@ -240,7 +231,6 @@ return view.extend({
         var initList = data[1] || {};
         var themesMap = this.installedThemes || [];
 
-        // Build dashboard content
         var themeBar = E('div', {
             'style': 'background: rgba(0,0,0,0.05); padding: 12px; border-radius: 8px; margin-bottom: 25px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;'
         }, [ E('strong', {}, '1-Click Theme Switcher: ') ]);
@@ -249,26 +239,18 @@ return view.extend({
             themeBar.appendChild(E('span', { 'style': 'color:#777; font-style:italic;' }, 'No alternative themes detected.'));
         } else {
             themesMap.forEach(function(themeKey) {
-                var cleanName = themeKey;
-                var tBtn = E('button', {
+                themeBar.appendChild(E('button', {
                     'class': 'btn cbi-button cbi-button-neutral',
                     'style': 'padding: 4px 12px; text-transform: capitalize; font-weight: bold;',
                     'click': function() { self.handleThemeSwitch(themeKey); }
-                }, cleanName);
-                themeBar.appendChild(tBtn);
+                }, themeKey));
             });
         }
 
-        var dashboardContainer = E('div', { 'id': 'quickactions-dashboard-content' }, [
-            themeBar,
-            E('div', {
-                'id': 'quickactions-grid-container',
-                'style': 'display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 15px;'
-            })
-        ]);
-
-        var grid = dashboardContainer.querySelector('#quickactions-grid-container');
-        if (!grid) grid = dashboardContainer.lastChild;
+        var grid = E('div', {
+            'id': 'quickactions-grid-container',
+            'style': 'display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-top: 15px;'
+        });
 
         if (commandsList.length === 0) {
             grid.appendChild(E('p', { 'style': 'grid-column: 1/-1; color:#888;' }, 'No saved entries found. Configure entries via System > Custom Commands first.'));
@@ -306,53 +288,50 @@ return view.extend({
             });
         }
 
-        // Build configuration content
-        var configContainer = E('div', { 'id': 'quickactions-config-content' }, [
-            this.renderConfig()
-        ]);
+        var dashboardContent = E('div', { 'id': 'quickactions-dashboard-content' }, [ themeBar, grid ]);
 
-        // Create tabs
-        var tabs = E('div', { 'class': 'cbi-tabs' }, [
-            E('a', {
-                'href': '#',
-                'class': 'cbi-tab' + (this.activeTab === 'dashboard' ? ' cbi-tab-active' : ''),
-                'click': function() {
-                    self.activeTab = 'dashboard';
-                    // Show dashboard, hide config
-                    document.getElementById('quickactions-dashboard-content').style.display = '';
-                    document.getElementById('quickactions-config-content').style.display = 'none';
-                    // Update tab styles
-                    var allTabs = document.querySelectorAll('.cbi-tab');
-                    allTabs.forEach(function(t) { t.classList.remove('cbi-tab-active'); });
-                    this.classList.add('cbi-tab-active');
-                }
-            }, _('Dashboard')),
-            E('a', {
-                'href': '#',
-                'class': 'cbi-tab' + (this.activeTab === 'config' ? ' cbi-tab-active' : ''),
-                'click': function() {
-                    self.activeTab = 'config';
-                    document.getElementById('quickactions-dashboard-content').style.display = 'none';
-                    document.getElementById('quickactions-config-content').style.display = '';
-                    var allTabs = document.querySelectorAll('.cbi-tab');
-                    allTabs.forEach(function(t) { t.classList.remove('cbi-tab-active'); });
-                    this.classList.add('cbi-tab-active');
-                }
-            }, _('Configuration'))
-        ]);
+        var configContent = E('div', { 'id': 'quickactions-config-content' });
+        configContent.style.display = 'none';
 
-        // Main container
+        var dashTab = E('a', { 'href': '#', 'class': 'cbi-tab cbi-tab-active' }, _('Dashboard'));
+        var cfgTab = E('a', { 'href': '#', 'class': 'cbi-tab' }, _('Configuration'));
+
+        dashTab.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            dashboardContent.style.display = '';
+            configContent.style.display = 'none';
+            dashTab.classList.add('cbi-tab-active');
+            cfgTab.classList.remove('cbi-tab-active');
+        });
+
+        cfgTab.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            dashboardContent.style.display = 'none';
+            configContent.style.display = '';
+            cfgTab.classList.add('cbi-tab-active');
+            dashTab.classList.remove('cbi-tab-active');
+
+            if (!self.configRendered) {
+                self.configRendered = true;
+                configContent.innerHTML = '';
+                configContent.appendChild(E('p', {}, _('Loading configuration...')));
+                self.renderConfig().then(function(formNode) {
+                    configContent.innerHTML = '';
+                    configContent.appendChild(formNode);
+                }).catch(function(err) {
+                    configContent.innerHTML = '';
+                    configContent.appendChild(E('div', { 'class': 'error' }, 'Failed to load form: ' + (err && err.message ? err.message : String(err))));
+                });
+            }
+        });
+
         var container = E('div', { 'class': 'cbi-map' }, [
             E('h2', {}, 'Quick Actions'),
-            tabs,
-            dashboardContainer,
-            configContainer
+            E('div', { 'class': 'cbi-tabs' }, [dashTab, cfgTab]),
+            dashboardContent,
+            configContent
         ]);
 
-        // Initially show dashboard, hide config
-        configContainer.style.display = 'none';
-
-        // Start polling if dashboard visible
         if (this.timerId) clearInterval(this.timerId);
         this.timerId = setInterval(function() { self.updateAllButtonsRealtime(); }, this.pollInterval * 1000);
 
