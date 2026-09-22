@@ -1,0 +1,12 @@
+*.ipk
+*.apk
+*.tar.zst
+build_dir/
+staging_dir/
+bin/
+tmp/
+sdk-ipk/
+sdk-apk/
+openwrt-sdk-*/
+*.swp
+*~

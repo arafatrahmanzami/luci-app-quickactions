@@ -1,0 +1,17 @@
+package quickactions
+
+config settings 'global'
+	option poll_interval '5'
+	option design_style '3d'
+
+config mapping
+	option keyword 'reboot'
+	option service 'system'
+	option dangerous '1'
+	option icon '⚠️'
+
+config mapping
+	option keyword 'vpn'
+	option service 'openvpn'
+	option dangerous '0'
+	option icon '🔒'

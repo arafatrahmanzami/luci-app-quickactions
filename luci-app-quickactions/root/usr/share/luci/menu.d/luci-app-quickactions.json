@@ -1,0 +1,12 @@
+{
+	"admin/system/quickactions": {
+		"title": "Quick Actions",
+		"action": { "type": "view", "path": "system/quickactions" },
+		"order": 89
+	},
+	"admin/system/quickactions_config": {
+		"title": "Quick Actions Config",
+		"action": { "type": "view", "path": "system/quickactions_config" },
+		"order": 90
+	}
+}

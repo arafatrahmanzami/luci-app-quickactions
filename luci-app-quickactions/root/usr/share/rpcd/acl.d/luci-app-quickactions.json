@@ -1,0 +1,19 @@
+{
+	"luci-app-quickactions": {
+		"description": "Grant safe background reading, configuration management and execution pipeline rights",
+		"read": {
+			"ubus": {
+				"file": [ "exec" ],
+				"luci": [ "getInitList", "getThemes" ]
+			},
+			"uci": [ "luci", "quickactions" ]
+		},
+		"write": {
+			"ubus": {
+				"file": [ "exec" ],
+				"uci": [ "*" ]
+			},
+			"uci": [ "luci", "quickactions" ]
+		}
+	}
+}
