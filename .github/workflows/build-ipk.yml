@@ -1,0 +1,57 @@
+name: Build IPK (OpenWrt 24.10)
+
+on:
+  push:
+    branches: [main, separate-menus]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: luci-app-quickactions
+
+      - name: Install zstd
+        run: sudo apt-get update && sudo apt-get install -y zstd
+
+      - name: Download SDK 24.10
+        run: |
+          wget -q -O sdk.tar.zst "https://downloads.openwrt.org/releases/24.10.4/targets/x86/64/openwrt-sdk-24.10.4-x86-64_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          tar --zstd -xvf sdk.tar.zst
+          mv openwrt-sdk-* sdk
+          echo "SDK_DIR=$PWD/sdk" >> $GITHUB_ENV
+
+      - name: Build IPK
+        run: |
+          cp -r luci-app-quickactions/luci-app-quickactions "$SDK_DIR/package/luci-app-quickactions"
+          cd "$SDK_DIR"
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+          echo "CONFIG_PACKAGE_luci-app-quickactions=m" >> .config
+          make defconfig
+          make package/luci-app-quickactions/compile V=s
+
+      - name: Locate IPK
+        run: find "$SDK_DIR/bin" -name "luci-app-quickactions*.ipk"
+
+      - name: Upload IPK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipk-${{ github.ref_name }}
+          path: ${{ env.SDK_DIR }}/bin/packages/**/luci-app-quickactions*.ipk
+
+      - name: Create Release on Tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.SDK_DIR }}/bin/packages/**/luci-app-quickactions*.ipk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
