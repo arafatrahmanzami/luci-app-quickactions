@@ -10,8 +10,43 @@ config mapping
 	option dangerous '1'
 	option icon '⚠️'
 
-config mapping
-	option keyword 'vpn'
-	option service 'openvpn'
-	option dangerous '0'
+config essential 'reboot'
+	option label 'Reboot Router'
+	option icon '🔄'
+	option command '/sbin/reboot'
+	option confirm '1'
+
+config essential 'shutdown'
+	option label 'Shutdown'
+	option icon '⏻'
+	option command '/sbin/poweroff'
+	option confirm '1'
+
+config essential 'wifi_toggle'
+	option label 'WiFi Off/On'
+	option icon '📶'
+	option command '/sbin/wifi down; sleep 2; /sbin/wifi up'
+	option confirm '0'
+
+config essential 'cache_clear'
+	option label 'Clear LuCI Cache'
+	option icon '🧹'
+	option command 'rm -rf /tmp/luci-indexcache /tmp/luci-modulecache*; /etc/init.d/rpcd restart; /etc/init.d/uhttpd restart'
+	option confirm '0'
+
+config shortcut 'openvpn'
+	option label 'OpenVPN'
 	option icon '🔒'
+	option path 'admin/services/openvpn'
+
+config shortcut 'firewall'
+	option label 'Firewall'
+	option icon '🛡️'
+	option path 'admin/network/firewall'
+
+config essential 'backup'
+	option order '14'
+	option label 'Download Config Backup'
+	option icon '💾'
+	option command '@download:/cgi-bin/cgi-backup'
+	option confirm '0'

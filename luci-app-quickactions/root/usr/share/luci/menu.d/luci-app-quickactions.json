@@ -1,7 +1,7 @@
 {
-	"admin/system/quickactions": {
+	"admin/quickactions": {
 		"title": "Quick Actions",
 		"action": { "type": "view", "path": "system/quickactions" },
-		"order": 89
+		"order": 25
 	}
 }
