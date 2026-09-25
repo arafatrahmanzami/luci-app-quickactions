@@ -1978,6 +1978,50 @@ return view.extend({
         });
     },
 
+    renderTtyd: function() {
+        var self = this;
+        var port = uci.get('ttyd', 'ttyd', 'port') || '7681';
+        var ssl = uci.get('ttyd', 'ttyd', 'ssl') || '0';
+        var override = uci.get('ttyd', 'ttyd', 'url_override');
+        var enabled = uci.get('ttyd', 'ttyd', 'enable') !== '0';
+
+        if (!enabled) {
+            return E('div', { 'class': 'alert-message warning' }, [
+                E('p', {}, 'ttyd is not enabled in /etc/config/ttyd.'),
+                E('p', { 'style': 'font-size:0.9em;' }, 'Enable it via Services → Terminal → Config, or install the ttyd backend if missing.')
+            ]);
+        }
+
+        if (port === '0') {
+            return E('div', { 'class': 'alert-message warning' }, [
+                E('p', {}, 'Random ttyd port (port=0) is not supported in embedded mode.'),
+                E('p', { 'style': 'font-size:0.9em;' }, 'Set a fixed port in Services → Terminal → Config.')
+            ]);
+        }
+
+        var url = override || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port);
+
+        var infoBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
+            E('strong', {}, 'Terminal: '),
+            E('span', {}, 'Runs via the ttyd backend. Copy/paste uses your browser\'s native shortcuts: '),
+            E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, 'Ctrl+Shift+C'),
+            E('span', {}, ' / '),
+            E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, 'Ctrl+Shift+V'),
+            E('span', {}, ' (or '),
+            E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, 'right-click'),
+            E('span', {}, '). To open in a new tab, '),
+            E('a', { 'href': url, 'target': '_blank', 'style': 'color:#1e90ff;' }, 'click here'),
+            E('span', {}, '.')
+        ]);
+
+        var iframe = E('iframe', {
+            'src': url,
+            'style': 'width:100%;min-height:70vh;border:1px solid rgba(0,0,0,0.15);border-radius:6px;resize:vertical;background:#000;'
+        });
+
+        return E('div', {}, [infoBar, iframe]);
+    },
+
     renderConfigForm: function() {
         var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
         var s = m.section(form.NamedSection, 'global', 'settings', 'Global Settings');
@@ -2029,6 +2073,7 @@ return view.extend({
             { id: 'hotplug', label: 'Hotplug' },
             { id: 'crontab', label: 'Crontab' },
             { id: 'guestwifi', label: 'Guest WiFi' },
+            { id: 'ttyd', label: 'Terminal' },
             { id: 'command', label: 'Command' },
             { id: 'dependencies', label: 'Dependencies' },
             { id: 'config', label: 'Configuration' }
@@ -2056,6 +2101,15 @@ return view.extend({
                 tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading guest WiFi form...'));
                 self.renderGuestWifi().then(function(node) { tabContent.innerHTML = ''; tabContent.appendChild(node); })
                     .catch(function(err) { tabContent.innerHTML = ''; tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Guest WiFi error: ' + (err && err.message ? err.message : String(err)))); });
+            }
+            else if (id === 'ttyd') {
+                Promise.resolve(uci.load('ttyd')).then(function() {
+                    tabContent.innerHTML = '';
+                    tabContent.appendChild(self.renderTtyd());
+                }).catch(function(err) {
+                    tabContent.innerHTML = '';
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'ttyd config missing: ' + (err && err.message ? err.message : String(err))));
+                });
             }
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
