@@ -6,14 +6,22 @@
 				"file": [ "exec", "read" ],
 				"luci": [ "getInitList", "getThemes" ]
 			},
-			"uci": [ "luci", "quickactions", "hotplug" ]
+			"file": {
+				"/etc/crontabs/root": [ "read" ],
+				"/etc/config/hotplug": [ "read" ]
+			},
+			"uci": [ "luci", "quickactions", "hotplug", "guestwifi", "network", "wireless", "dhcp", "firewall" ]
 		},
 		"write": {
 			"ubus": {
 				"file": [ "exec", "read", "write" ],
 				"uci": [ "*" ]
 			},
-			"uci": [ "luci", "quickactions", "hotplug" ]
+			"file": {
+				"/etc/crontabs/root": [ "write" ],
+				"/etc/config/hotplug": [ "write" ]
+			},
+			"uci": [ "luci", "quickactions", "hotplug", "guestwifi", "network", "wireless", "dhcp", "firewall" ]
 		}
 	}
 }
