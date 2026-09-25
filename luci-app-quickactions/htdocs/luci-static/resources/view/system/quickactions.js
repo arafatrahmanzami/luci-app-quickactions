@@ -4,6 +4,7 @@
 'require uci';
 'require rpc';
 'require form';
+'require fs';
 
 return view.extend({
     pollInterval: 5,
@@ -596,6 +597,281 @@ return view.extend({
         });
     },
 
+    cwAddStyles: function() {
+        if (document.getElementById('cw-styles')) return;
+        var style = document.createElement('style');
+        style.id = 'cw-styles';
+        style.type = 'text/css';
+        style.textContent = `
+        .cw-root .cron-multiselect {
+          width: 100%; min-height: 140px;
+          background: rgba(0,0,0,0.03);
+          color: inherit; border: 1px solid rgba(0,0,0,0.15);
+          border-radius: 4px; padding: 4px; font-family: inherit;
+          font-size: 13px; line-height: 1.4; outline: none;
+        }
+        :root[data-darkmode="true"] .cw-root .cron-multiselect {
+          background: #2a2f34; color: #e5e7eb; border-color: #3a4146;
+        }
+        .cw-root .cron-minute-head  { background: #fdd2d6; color: #263238; font-weight: bold; padding: 8px; }
+        .cw-root .cron-hour-head    { background: #cfead1; color: #263238; font-weight: bold; padding: 8px; }
+        .cw-root .cron-day-head     { background: #ffd8ad; color: #263238; font-weight: bold; padding: 8px; }
+        .cw-root .cron-month-head   { background: #bbdefb; color: #263238; font-weight: bold; padding: 8px; }
+        .cw-root .cron-weekday-head { background: #e1bee7; color: #263238; font-weight: bold; padding: 8px; }
+        :root[data-darkmode="true"] .cw-root .cron-minute-head  { background: #8b4f5a; color: #ffcdd2; }
+        :root[data-darkmode="true"] .cw-root .cron-hour-head    { background: #4f6b52; color: #c8e6c9; }
+        :root[data-darkmode="true"] .cw-root .cron-day-head     { background: #7a5838; color: #ffe0b2; }
+        :root[data-darkmode="true"] .cw-root .cron-month-head   { background: #4a6b8e; color: #bbdefb; }
+        :root[data-darkmode="true"] .cw-root .cron-weekday-head { background: #5a4f71; color: #e1bee7; }
+        .cw-root .cron-badge {
+          display: inline-block; padding: 3px 6px; border-radius: 6px;
+          border: 1px solid rgba(0,0,0,0.15); font-weight: 600;
+        }
+        :root[data-darkmode="true"] .cw-root .cron-badge { border-color: rgba(255,255,255,0.2); }
+        .cw-root #cw_preview {
+          min-height: 40px; padding: 8px; border-radius: 6px;
+          border: 1px solid rgba(0,0,0,0.15); font-family: monospace;
+          background: rgba(0,0,0,0.03);
+        }
+        :root[data-darkmode="true"] .cw-root #cw_preview { background: #2a2f34; border-color: #3a4146; }
+        .cw-root .cw-section { background: rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.06); border-radius: 8px; padding: 16px; margin-bottom: 18px; }
+        :root[data-darkmode="true"] .cw-root .cw-section { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
+        `;
+        document.head.appendChild(style);
+    },
+
+    cwColors: {
+        light: { minute:'#fdd2d6', hour:'#cfead1', day:'#ffd8ad', month:'#bbdefb', weekday:'#e1bee7' },
+        dark:  { minute:'#5b2f35', hour:'#2f4732', day:'#4a3828', month:'#30475e', weekday:'#3a2f41' }
+    },
+    cwGetCurrentColors: function() {
+        return document.documentElement.getAttribute('data-darkmode') === 'true' ? this.cwColors.dark : this.cwColors.light;
+    },
+    cwGetBadgeTextColor: function() {
+        return document.documentElement.getAttribute('data-darkmode') === 'true' ? '#ffffff' : '#111111';
+    },
+    cwWeekdayNames: function() {
+        return [ _('Sunday'), _('Monday'), _('Tuesday'), _('Wednesday'), _('Thursday'), _('Friday'), _('Saturday') ];
+    },
+    cwMonthNames: function() {
+        return [ '', _('January'), _('February'), _('March'), _('April'), _('May'), _('June'),
+                 _('July'), _('August'), _('September'), _('October'), _('November'), _('December') ];
+    },
+    cwFormatRange: function(a, b) { return a + '-' + b; },
+
+    cwParseSegments: function(expr) {
+        if (!expr || expr === '*') return { type: 'any' };
+        if (/^\*\/\d+$/.test(expr)) return { type: 'step', step: parseInt(expr.slice(2), 10) };
+        var segs = [];
+        expr.split(',').forEach(function(part) {
+            var m = part.match(/^(\d+)-(\d+)$/);
+            if (m) { segs.push({ kind:'range', a:parseInt(m[1],10), b:parseInt(m[2],10) }); }
+            else { var v = parseInt(part, 10); if (!isNaN(v)) segs.push({ kind:'single', v:v }); }
+        });
+        return { type:'list', segs:segs };
+    },
+    cwExpand: function(parsed, minVal, maxVal) {
+        if (parsed.type === 'any') return null;
+        var vals = {};
+        if (parsed.type === 'step') {
+            for (var i = minVal; i <= maxVal; i += parsed.step) vals[i] = 1;
+        } else {
+            parsed.segs.forEach(function(s) {
+                if (s.kind === 'single') { if (s.v >= minVal && s.v <= maxVal) vals[s.v] = 1; }
+                else { for (var i = s.a; i <= s.b; i++) if (i >= minVal && i <= maxVal) vals[i] = 1; }
+            });
+        }
+        return Object.keys(vals).map(Number).sort(function(a,b){ return a-b; });
+    },
+    cwHumanList: function(parsed, labeller) {
+        if (parsed.type === 'any' || parsed.type === 'step') return null;
+        var self = this;
+        return parsed.segs.map(function(s) {
+            if (s.kind === 'single') return labeller(s.v);
+            return self.cwFormatRange(labeller(s.a), labeller(s.b));
+        }).join(', ');
+    },
+    cwPad2: function(n) { return n < 10 ? '0' + n : '' + n; },
+
+    cwDescribeCron: function(minute, hour, day, month, weekday, command) {
+        var parts = [];
+        if (minute !== '*') parts.push(_('minute: %s').format(minute));
+        if (hour !== '*') parts.push(_('hour: %s').format(hour));
+        if (day !== '*') parts.push(_('day: %s').format(day));
+        if (month !== '*') parts.push(_('month: %s').format(month));
+        if (weekday !== '*') parts.push(_('weekday: %s').format(weekday));
+        if (parts.length === 0) return command ? _('Command "%s" will run every minute.').format(command) : '';
+        return command ? _('Command "%s" will run at').format(command) + ': ' + parts.join('; ')
+                       : _('Runs at') + ': ' + parts.join('; ');
+    },
+
+    cwBadge: function(bg, content) {
+        var color = this.cwGetBadgeTextColor();
+        return '<span class="cron-badge" style="background:' + bg + ';color:' + color + '">' + content + '</span>';
+    },
+    cwGetSelectedValues: function(selectId) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return [];
+        return Array.prototype.slice.call(sel.selectedOptions || []).map(function(o){ return o.value; });
+    },
+    cwNormalizeSelection: function(values) {
+        if (!values || values.length === 0) return ['*'];
+        if (values.indexOf('*') >= 0) return ['*'];
+        var seen = {};
+        values.forEach(function(v){ seen[parseInt(v,10)] = 1; });
+        return Object.keys(seen).map(Number).sort(function(a,b){ return a-b; }).map(String);
+    },
+    cwCompressValues: function(values) {
+        if (!values || values.length === 0) return '*';
+        if (values.length === 1) return values[0];
+        var nums = values.map(Number), parts = [], start = nums[0], prev = nums[0];
+        for (var i = 1; i < nums.length; i++) {
+            var cur = nums[i];
+            if (cur === prev + 1) { prev = cur; continue; }
+            parts.push(start === prev ? String(start) : (start + '-' + prev));
+            start = prev = cur;
+        }
+        parts.push(start === prev ? String(start) : (start + '-' + prev));
+        return parts.join(',');
+    },
+    cwBuildField: function(selectId, checkboxId) {
+        var vals = this.cwNormalizeSelection(this.cwGetSelectedValues(selectId));
+        if (checkboxId) {
+            var cb = document.getElementById(checkboxId);
+            if (cb && cb.checked) {
+                var sel = vals[0];
+                return (sel === '*' || sel === undefined) ? '*' : '*/' + sel;
+            }
+        }
+        if (vals.length === 0 || vals[0] === '*') return '*';
+        return this.cwCompressValues(vals);
+    },
+
+    cwUpdatePreview: function() {
+        var minute  = this.cwBuildField('cw_minute',  'cw_minute_cb');
+        var hour    = this.cwBuildField('cw_hour',    'cw_hour_cb');
+        var day     = this.cwBuildField('cw_day',     'cw_day_cb');
+        var month   = this.cwBuildField('cw_month');
+        var weekday = this.cwBuildField('cw_weekday');
+        var cmdEl   = document.getElementById('cw_command');
+        var command = cmdEl ? cmdEl.value : '';
+
+        var colors = this.cwGetCurrentColors();
+        var html = '';
+        html += (minute  !== '*') ? this.cwBadge(colors.minute,  minute)  : minute;  html += ' ';
+        html += (hour    !== '*') ? this.cwBadge(colors.hour,    hour)    : hour;    html += ' ';
+        html += (day     !== '*') ? this.cwBadge(colors.day,     day)     : day;     html += ' ';
+        html += (month   !== '*') ? this.cwBadge(colors.month,   month)   : month;   html += ' ';
+        html += (weekday !== '*') ? this.cwBadge(colors.weekday, weekday) : weekday; html += ' ';
+        html += command ? '<span class="cron-badge" style="background:#90a4ae">' + command + '</span>' : '';
+
+        var prev = document.getElementById('cw_preview');
+        if (prev) prev.innerHTML = html;
+        var txt = document.getElementById('cw_preview_text');
+        if (txt) txt.value = minute + ' ' + hour + ' ' + day + ' ' + month + ' ' + weekday + ' ' + command;
+        var hum = document.getElementById('cw_human');
+        if (hum) hum.value = this.cwDescribeCron(minute, hour, day, month, weekday, command);
+    },
+
+    cwAppend: function() {
+        var input = document.getElementById('cw_preview_text');
+        if (!input) return;
+        var line = (input.value || '').trim();
+        if (!line || line === '* * * * *') { ui.addNotification('Error', _('Check the cron entry - it must contain time + command'), 'danger'); return; }
+        if (line.split(/\s+/).length < 6) { ui.addNotification('Error', _('Please enter the command'), 'danger'); return; }
+        if (!confirm('Add this cron entry?\n\n' + line)) return;
+
+        fs.read('/etc/crontabs/root').catch(function(){ return ''; }).then(function(content) {
+            var cur = (content || '').replace(/\r\n/g, '\n');
+            var haystack = '\n' + cur + (cur.slice(-1) === '\n' ? '' : '\n');
+            if (haystack.indexOf('\n' + line + '\n') >= 0) {
+                ui.addNotification('Duplicate', _('This entry already exists'), 'info');
+                return null;
+            }
+            if (cur && cur.slice(-1) !== '\n') cur += '\n';
+            cur += line + '\n';
+            return fs.write('/etc/crontabs/root', cur).then(function() {
+                return fs.exec('/etc/init.d/cron', ['restart']);
+            }).then(function() {
+                ui.addNotification('Added', E('p', {}, line), 'info');
+            });
+        }).catch(function(e) {
+            ui.addNotification('Error', (e && e.message) ? e.message : String(e), 'danger');
+        });
+    },
+
+    cwGenerateOptions: function(start, end, labels) {
+        var opts = [ E('option', { value: '*', selected: true }, '*') ];
+        if (labels) {
+            for (var i = 0; i < labels.length; i++) opts.push(E('option', { value: String(start + i) }, labels[i]));
+        } else {
+            for (var j = start; j <= end; j++) opts.push(E('option', { value: String(j) }, String(j)));
+        }
+        return opts;
+    },
+    cwResetMulti: function(id) {
+        var sel = document.getElementById(id);
+        if (!sel) return;
+        Array.prototype.slice.call(sel.options).forEach(function(o){ o.selected = (o.value === '*'); });
+    },
+
+    renderCrontabWizard: function() {
+        var self = this;
+        this.cwAddStyles();
+
+        var grid = E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1em;margin-bottom:1em;' });
+
+        function cwSelect(id, opts, cbId, cbLabel) {
+            var sel = E('select', { 'id': id, 'class': 'cron-multiselect', 'multiple': true, 'size': 8, 'change': function(){ self.cwUpdatePreview(); } }, opts);
+            var kids = [ sel ];
+            if (cbId) {
+                kids.push(E('div', { 'style': 'display:flex;align-items:center;gap:5px;margin-top:6px;' }, [
+                    E('input', { 'type': 'checkbox', 'id': cbId, 'change': function(){ self.cwUpdatePreview(); } }),
+                    E('label', { 'for': cbId, 'style': 'font-size:12px;' }, cbLabel)
+                ]));
+            }
+            return E('div', { 'class': 'cw-section', 'style': 'padding:0;' }, [
+                E('div', { 'class': id.replace('cw_', 'cron-') + '-head' }, cbLabel || id),
+                E('div', { 'style': 'padding:8px;' }, kids)
+            ]);
+        }
+
+        grid.appendChild(cwSelect('cw_minute',  this.cwGenerateOptions(0, 59), 'cw_minute_cb', _('Minute')));
+        grid.appendChild(cwSelect('cw_hour',    this.cwGenerateOptions(0, 23), 'cw_hour_cb',   _('Hour')));
+        grid.appendChild(cwSelect('cw_day',     this.cwGenerateOptions(1, 31), 'cw_day_cb',    _('Day')));
+        grid.appendChild(cwSelect('cw_month',   this.cwGenerateOptions(1, 12, this.cwMonthNames().slice(1)), null, _('Month')));
+        grid.appendChild(cwSelect('cw_weekday', this.cwGenerateOptions(0, 6, this.cwWeekdayNames()), null, _('Weekday')));
+
+        var root = E('div', { 'class': 'cw-root' }, [
+            E('h3', { 'style': 'margin:0 0 4px 0;' }, _('Graphical Crontab Configurator')),
+            E('p', { 'style': 'color:#888;font-size:0.9em;margin:0 0 16px 0;' }, _('Pick time units, type a command, preview the generated cron line, then add it.')),
+            grid,
+            E('div', { 'class': 'cw-section' }, [
+                E('label', { 'style': 'font-weight:bold;display:block;margin-bottom:5px;' }, _('Command to execute:')),
+                E('input', { 'id': 'cw_command', 'class': 'cbi-input-text', 'style': 'width:100%;margin-bottom:12px;', 'placeholder': 'echo hello', 'keyup': function(){ self.cwUpdatePreview(); }, 'change': function(){ self.cwUpdatePreview(); } }),
+                E('label', { 'style': 'font-weight:bold;display:block;margin-bottom:5px;' }, _('Preview:')),
+                E('div', { 'id': 'cw_preview' }),
+                E('label', { 'style': 'font-weight:bold;display:block;margin:12px 0 5px 0;' }, _('Description:')),
+                E('textarea', { 'id': 'cw_human', 'readonly': true, 'style': 'width:100%;min-height:50px;font-size:0.85em;resize:vertical;' }),
+                E('label', { 'style': 'font-weight:bold;display:block;margin:12px 0 5px 0;' }, _('Generated cron entry:')),
+                E('input', { 'id': 'cw_preview_text', 'readonly': true, 'style': 'width:100%;font-family:monospace;' }),
+                E('div', { 'style': 'margin-top:12px;display:flex;gap:10px;justify-content:flex-end;' }, [
+                    E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
+                        self.cwResetMulti('cw_minute'); self.cwResetMulti('cw_hour'); self.cwResetMulti('cw_day');
+                        self.cwResetMulti('cw_month'); self.cwResetMulti('cw_weekday');
+                        document.getElementById('cw_command').value = '';
+                        ['cw_minute_cb','cw_hour_cb','cw_day_cb'].forEach(function(id){ var e = document.getElementById(id); if (e) e.checked = false; });
+                        self.cwUpdatePreview();
+                    } }, _('Reset')),
+                    E('button', { 'class': 'btn cbi-button cbi-button-action important', 'click': function(){ self.cwAppend(); } }, _('Add to Cron'))
+                ])
+            ])
+        ]);
+
+        setTimeout(function(){ self.cwUpdatePreview(); }, 0);
+        return root;
+    },
+
     renderConfigForm: function() {
         var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
         var s = m.section(form.NamedSection, 'global', 'settings', 'Global Settings');
@@ -645,6 +921,7 @@ return view.extend({
             { id: 'logs', label: 'Logs' },
             { id: 'services', label: 'Services' },
             { id: 'hotplug', label: 'Hotplug' },
+            { id: 'crontab', label: 'Crontab' },
             { id: 'command', label: 'Command' },
             { id: 'dependencies', label: 'Dependencies' },
             { id: 'config', label: 'Configuration' }
@@ -667,6 +944,7 @@ return view.extend({
                 Promise.resolve(self.renderHotplug()).then(function(node) { tabContent.innerHTML = ''; tabContent.appendChild(node); })
                     .catch(function(err) { tabContent.innerHTML = ''; tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Hotplug error: ' + (err && err.message ? err.message : String(err)))); });
             }
+            else if (id === 'crontab') tabContent.appendChild(self.renderCrontabWizard());
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
             else if (id === 'config') {

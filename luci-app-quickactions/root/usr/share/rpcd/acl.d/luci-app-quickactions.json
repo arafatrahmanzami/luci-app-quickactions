@@ -3,14 +3,14 @@
 		"description": "Grant access to Quick Actions",
 		"read": {
 			"ubus": {
-				"file": [ "exec" ],
+				"file": [ "exec", "read" ],
 				"luci": [ "getInitList", "getThemes" ]
 			},
 			"uci": [ "luci", "quickactions", "hotplug" ]
 		},
 		"write": {
 			"ubus": {
-				"file": [ "exec" ],
+				"file": [ "exec", "read", "write" ],
 				"uci": [ "*" ]
 			},
 			"uci": [ "luci", "quickactions", "hotplug" ]
