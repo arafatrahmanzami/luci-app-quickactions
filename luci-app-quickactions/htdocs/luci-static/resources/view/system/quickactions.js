@@ -1980,46 +1980,149 @@ return view.extend({
 
     renderTtyd: function() {
         var self = this;
+        var enabled = uci.get('ttyd', 'ttyd', 'enable') !== '0';
         var port = uci.get('ttyd', 'ttyd', 'port') || '7681';
         var ssl = uci.get('ttyd', 'ttyd', 'ssl') || '0';
         var override = uci.get('ttyd', 'ttyd', 'url_override');
-        var enabled = uci.get('ttyd', 'ttyd', 'enable') !== '0';
+        var currentCmd = uci.get('ttyd', 'ttyd', 'command') || '/bin/login';
+        var autoLogin = (currentCmd === '/bin/sh' || currentCmd === '/bin/ash');
 
-        if (!enabled) {
-            return E('div', { 'class': 'alert-message warning' }, [
-                E('p', {}, 'ttyd is not enabled in /etc/config/ttyd.'),
-                E('p', { 'style': 'font-size:0.9em;' }, 'Enable it via Services → Terminal → Config, or install the ttyd backend if missing.')
-            ]);
-        }
+        // --- Auto-login toggle ---
+        var toggleBtn = E('button', {
+            'class': 'btn cbi-button ' + (autoLogin ? 'cbi-button-reset' : 'cbi-button-action'),
+            'style': 'padding:4px 12px;font-size:0.85em;',
+            'click': function() {
+                var newCmd = autoLogin ? '/bin/login' : '/bin/sh';
+                var msg = autoLogin
+                    ? 'Switch back to secure login prompt (/bin/login)?'
+                    : '⚠️ WARNING: Enable root auto-login?\n\nThis changes ttyd command to /bin/sh. Anyone who can reach port ' + port + ' gets a root shell without credentials.\n\nEnsure ttyd is bound to loopback or LAN-only and your network is trusted.\n\nProceed?';
+                if (!confirm(msg)) return;
+                uci.load('ttyd').then(function() {
+                    uci.set('ttyd', 'ttyd', 'command', newCmd);
+                    return uci.save();
+                }).then(function() {
+                    return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/ttyd restart']);
+                }).then(function() {
+                    ui.addNotification('Success', 'ttyd restarted with ' + newCmd, 'info');
+                    self.switchTab('ttyd');
+                }).catch(function(err) {
+                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                });
+            }
+        }, autoLogin ? '🔴 Auto-Login: ON — click to disable' : 'Enable Auto-Login as Root');
 
-        if (port === '0') {
-            return E('div', { 'class': 'alert-message warning' }, [
-                E('p', {}, 'Random ttyd port (port=0) is not supported in embedded mode.'),
-                E('p', { 'style': 'font-size:0.9em;' }, 'Set a fixed port in Services → Terminal → Config.')
-            ]);
-        }
-
-        var url = override || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port);
-
-        var infoBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
-            E('strong', {}, 'Terminal: '),
-            E('span', {}, 'Runs via the ttyd backend. Copy/paste uses your browser\'s native shortcuts: '),
-            E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, 'Ctrl+Shift+C'),
-            E('span', {}, ' / '),
-            E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, 'Ctrl+Shift+V'),
-            E('span', {}, ' (or '),
-            E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, 'right-click'),
-            E('span', {}, '). To open in a new tab, '),
-            E('a', { 'href': url, 'target': '_blank', 'style': 'color:#1e90ff;' }, 'click here'),
-            E('span', {}, '.')
+        var statusBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
+            E('div', { 'style': 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;' }, [
+                E('strong', {}, 'Terminal (ttyd):'),
+                E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, currentCmd),
+                E('span', { 'style': 'flex:1;' }),
+                toggleBtn
+            ])
         ]);
 
-        var iframe = E('iframe', {
-            'src': url,
-            'style': 'width:100%;min-height:70vh;border:1px solid rgba(0,0,0,0.15);border-radius:6px;resize:vertical;background:#000;'
-        });
+        var parts = [statusBar];
 
-        return E('div', {}, [infoBar, iframe]);
+        if (!enabled) {
+            parts.push(E('div', { 'class': 'alert-message warning' }, 'ttyd is disabled. Enable it below and save.'));
+        } else if (port === '0') {
+            parts.push(E('div', { 'class': 'alert-message warning' }, 'Random ttyd port not supported. Set a fixed port below.'));
+        } else {
+            var url = override || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port);
+            parts.push(E('iframe', {
+                'src': url,
+                'style': 'width:100%;min-height:60vh;border:1px solid rgba(0,0,0,0.15);border-radius:6px;resize:vertical;background:#000;'
+            }));
+        }
+
+        // --- Full config form via LuCI form.Map ---
+        var m = new form.Map('ttyd', _('ttyd Configuration'), _('All backend options. Save applies and restarts ttyd.'));
+        var s = m.section(form.TypedSection, 'ttyd', _('ttyd Instance'));
+        s.anonymous = true;
+        s.addremove = false;
+
+        var o;
+        o = s.option(form.Flag, 'enable', _('Enable'));
+        o.default = true;
+        s.option(form.Flag, 'unix_sock', _('UNIX socket'), _('Bind to UNIX domain socket instead of IP port'));
+        o = s.option(form.Value, 'port', _('Port'), _('Port to listen (default: 7681, use 0 for random)'));
+        o.depends('unix_sock', '0');
+        o.datatype = 'port';
+        o.placeholder = '7681';
+        o = s.option(form.Value, 'interface', _('Interface'), _('Network interface to bind (e.g. br-lan, lo)'));
+        o.depends('unix_sock', '0');
+        o = s.option(form.Value, 'credential', _('Credential'), _('Basic auth user:password'));
+        o.placeholder = 'username:password';
+        o = s.option(form.Value, 'uid', _('User ID'));
+        o.datatype = 'uinteger';
+        o = s.option(form.Value, 'gid', _('Group ID'));
+        o.datatype = 'uinteger';
+        o = s.option(form.Value, 'signal', _('Signal'), _('Signal to send to command on exit (default: 1)'));
+        o.datatype = 'uinteger';
+        s.option(form.Flag, 'url_arg', _('Allow URL args'));
+        s.option(form.Flag, 'readonly', _('Read-only'), _('Deny client write access to TTY'));
+        o = s.option(form.DynamicList, 'client_option', _('Client option'), _('Send option to client'));
+        o.placeholder = 'key=value';
+        o = s.option(form.Value, 'terminal_type', _('Terminal type'));
+        o.placeholder = 'xterm-256color';
+        s.option(form.Flag, 'check_origin', _('Check origin'), _('Block cross-origin WebSocket'));
+        o = s.option(form.Value, 'max_clients', _('Max clients'));
+        o.datatype = 'uinteger';
+        o.placeholder = '0';
+        s.option(form.Flag, 'once', _('Once'), _('Accept one client then exit'));
+        o = s.option(form.Value, 'index', _('Index'), _('Custom index.html path'));
+        s.option(form.Flag, 'ipv6', _('IPv6'));
+        s.option(form.Flag, 'ssl', _('SSL'));
+        o = s.option(form.Value, 'ssl_cert', _('SSL cert'));
+        o.depends('ssl', '1');
+        o = s.option(form.Value, 'ssl_key', _('SSL key'));
+        o.depends('ssl', '1');
+        o = s.option(form.Value, 'ssl_ca', _('SSL CA'));
+        o.depends('ssl', '1');
+        o = s.option(form.ListValue, 'debug', _('Debug'), _('Log level'));
+        o.value('1', _('Error'));
+        o.value('3', _('Warning'));
+        o.value('7', _('Notice'));
+        o.value('15', _('Info'));
+        o.default = '7';
+        o = s.option(form.Value, 'command', _('Command'), _('Command to run in the shell'));
+        o.placeholder = '/bin/login';
+        s.option(form.Value, 'url_override', _('URL override'), _('Override URL in Terminal tab (for reverse proxy)'));
+
+        return m.render().then(function(formNode) {
+            // Strip page actions so LuCI doesn't hijack the outer view
+            var actions = formNode.querySelectorAll('.cbi-page-actions');
+            for (var i = 0; i < actions.length; i++) {
+                if (actions[i].parentNode) actions[i].parentNode.removeChild(actions[i]);
+            }
+
+            var saveBtn = E('button', {
+                'class': 'btn cbi-button cbi-button-action important',
+                'style': 'margin-top:14px;',
+                'click': function() {
+                    if (!confirm('Save ttyd config and restart the service?')) return;
+                    ui.addNotification('Saving', 'Applying ttyd config...', 'info');
+                    m.save().then(function() {
+                        return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/ttyd restart']);
+                    }).then(function() {
+                        ui.addNotification('Saved', 'ttyd config updated and service restarted.', 'info');
+                        self.switchTab('ttyd');
+                    }).catch(function(err) {
+                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    });
+                }
+            }, _('Save & Restart ttyd'));
+
+            var cfgBox = E('details', { 'style': 'margin-top:20px;background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:12px 16px;' }, [
+                E('summary', { 'style': 'cursor:pointer;font-weight:bold;color:#1e90ff;font-size:1em;' }, _('ttyd Configuration — full settings')),
+                E('div', { 'style': 'padding-top:12px;' }, [formNode, saveBtn])
+            ]);
+
+            parts.push(cfgBox);
+            return E('div', {}, parts);
+        }).catch(function(err) {
+            parts.push(E('div', { 'class': 'alert-message error' }, 'Form error: ' + (err && err.message ? err.message : String(err))));
+            return E('div', {}, parts);
+        });
     },
 
     renderConfigForm: function() {
@@ -2059,6 +2162,20 @@ return view.extend({
 
     render: function(data) {
         var self = this;
+
+        // Embedded mode — ?embed=guestwifi renders only the guest wifi form (no outer tabs)
+        var embedParam = '';
+        try { embedParam = new URLSearchParams(window.location.search).get('embed') || ''; } catch(e) {}
+
+        if (embedParam === 'guestwifi') {
+            var gw = new GuestWifiViewClass();
+            return Promise.resolve(gw.load()).then(function() {
+                return gw.render();
+            }).catch(function(err) {
+                return E('div', { 'class': 'alert-message error', 'style': 'padding:20px;' }, 'Guest WiFi form error: ' + (err && err.message ? err.message : String(err)));
+            });
+        }
+
         var cmds = data[0] || [];
         var initList = data[1] || {};
         var tabBar = E('div', { 'style': 'display:flex;gap:2px;border-bottom:2px solid rgba(0,0,0,0.08);margin:0 0 20px 0;flex-wrap:wrap;' });
@@ -2080,6 +2197,7 @@ return view.extend({
         ];
         function showTab(id) {
             self.activeTab = id;
+            try { if (window.location.hash !== '#' + id) history.replaceState(null, '', '#' + id); } catch(e) {}
             Object.keys(tabButtons).forEach(function(tid) {
                 var b = tabButtons[tid];
                 if (tid === id) { b.style.borderBottomColor = '#1e90ff'; b.style.color = '#1e90ff'; b.style.fontWeight = 'bold'; }
@@ -2098,17 +2216,58 @@ return view.extend({
             }
             else if (id === 'crontab') tabContent.appendChild(self.renderCrontabWizard());
             else if (id === 'guestwifi') {
-                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading guest WiFi form...'));
-                self.renderGuestWifi().then(function(node) { tabContent.innerHTML = ''; tabContent.appendChild(node); })
-                    .catch(function(err) { tabContent.innerHTML = ''; tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Guest WiFi error: ' + (err && err.message ? err.message : String(err)))); });
+                // Guest WiFi's form.Map hijacks #view when rendered inline. Isolate it in an iframe.
+                var baseUrl = window.location.pathname;
+                var iframeUrl = baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=guestwifi';
+                var infoBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.85em;display:flex;align-items:center;gap:12px;flex-wrap:wrap;' }, [
+                    E('span', { 'style': 'flex:1;' }, 'Guest WiFi runs in an isolated frame so this tab bar stays visible. Save & Apply works normally inside the frame.'),
+                    E('a', { 'href': iframeUrl, 'target': '_blank', 'style': 'color:#1e90ff;font-weight:bold;' }, 'Open in new tab ↗'),
+                    E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
+                        var f = document.getElementById('qa-guestwifi-iframe');
+                        if (f) { var s = f.src; f.src = 'about:blank'; setTimeout(function(){ f.src = s; }, 50); }
+                    } }, '↻ Reload')
+                ]);
+                var ifr = document.createElement('iframe');
+                ifr.id = 'qa-guestwifi-iframe';
+                ifr.style.cssText = 'width:100%;min-height:80vh;border:1px solid rgba(0,0,0,0.1);border-radius:6px;background:transparent;';
+
+                function injectGuestWifiCSS() {
+                    var f = document.getElementById('qa-guestwifi-iframe');
+                    if (!f) return;
+                    try {
+                        var doc = f.contentDocument;
+                        if (!doc || !doc.head) return;
+                        if (doc.getElementById('qa-embed-css')) return;
+                        var s = doc.createElement('style');
+                        s.id = 'qa-embed-css';
+                        s.textContent = 'body > header, header.header, #mainmenu, .main-menu, nav.main-menu { display: none !important; } ' + 'body { padding-top: 0 !important; margin-top: 0 !important; } ' + '.main { top: 0 !important; margin-top: 0 !important; padding-top: 8px !important; } ' + '.main-left { display: none !important; } ' + '.main-right { margin-left: 0 !important; } ' + '#maincontent { padding-top: 0 !important; }';
+                        doc.head.appendChild(s);
+                    } catch(e) { /* ignore */ }
+                }
+
+                ifr.addEventListener('load', injectGuestWifiCSS);
+                ifr.src = iframeUrl;
+
+                // Belt-and-suspenders: poll a few times in case load fires early
+                setTimeout(injectGuestWifiCSS, 150);
+                setTimeout(injectGuestWifiCSS, 500);
+                setTimeout(injectGuestWifiCSS, 1200);
+                setTimeout(injectGuestWifiCSS, 2500);
+                tabContent.innerHTML = '';
+                tabContent.appendChild(infoBar);
+                tabContent.appendChild(ifr);
             }
             else if (id === 'ttyd') {
+                tabContent.innerHTML = '';
+                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ttyd configuration...'));
                 Promise.resolve(uci.load('ttyd')).then(function() {
+                    return self.renderTtyd();
+                }).then(function(node) {
                     tabContent.innerHTML = '';
-                    tabContent.appendChild(self.renderTtyd());
+                    tabContent.appendChild(node);
                 }).catch(function(err) {
                     tabContent.innerHTML = '';
-                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'ttyd config missing: ' + (err && err.message ? err.message : String(err))));
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'ttyd error: ' + (err && err.message ? err.message : String(err))));
                 });
             }
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
@@ -2132,7 +2291,18 @@ return view.extend({
         this.switchTab = showTab;
         if (this.timerId) clearInterval(this.timerId);
         this.timerId = setInterval(function() { self.updateAllButtonsRealtime(); }, this.pollInterval * 1000);
-        showTab('dashboard');
+        var initialTab = 'dashboard';
+        try {
+            var h = (window.location.hash || '').replace('#', '');
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','command','dependencies','config'];
+            if (h && known.indexOf(h) !== -1) initialTab = h;
+        } catch(e) {}
+        showTab(initialTab);
+        window.addEventListener('hashchange', function() {
+            var nh = (window.location.hash || '').replace('#', '');
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','command','dependencies','config'];
+            if (nh && known.indexOf(nh) !== -1 && nh !== self.activeTab) showTab(nh);
+        });
         return container;
     },
 
