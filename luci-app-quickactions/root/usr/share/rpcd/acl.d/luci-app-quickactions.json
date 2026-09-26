@@ -33,6 +33,33 @@
 				],
 				"/etc/config/taskplan": [
 					"read"
+				],
+				"/etc/config/wizard": [
+					"read"
+				],
+				"/etc/config/netwizard": [
+					"read"
+				],
+				"/etc/config/network": [
+					"read"
+				],
+				"/etc/config/firewall": [
+					"read"
+				],
+				"/etc/config/dhcp": [
+					"read"
+				],
+				"/etc/config/wireless": [
+					"read"
+				],
+				"/etc/config/nginx": [
+					"read"
+				],
+				"/etc/config/uhttpd": [
+					"read"
+				],
+				"/etc/config/lighttpd": [
+					"read"
 				]
 			},
 			"uci": [
@@ -44,8 +71,16 @@
 				"wireless",
 				"dhcp",
 				"firewall",
-				"taskplan"
-			]
+				"taskplan",
+				"wizard",
+				"netwizard",
+				"nginx"
+			],
+			"execute": {
+				"/usr/libexec/quickactions-netwizard/list-backups.sh": [
+					"exec"
+				]
+			}
 		},
 		"write": {
 			"ubus": {
@@ -79,6 +114,33 @@
 				],
 				"/etc/config/taskplan": [
 					"write"
+				],
+				"/etc/config/wizard": [
+					"write"
+				],
+				"/etc/config/netwizard": [
+					"write"
+				],
+				"/etc/config/network": [
+					"write"
+				],
+				"/etc/config/firewall": [
+					"write"
+				],
+				"/etc/config/dhcp": [
+					"write"
+				],
+				"/etc/config/wireless": [
+					"write"
+				],
+				"/etc/config/nginx": [
+					"write"
+				],
+				"/etc/config/uhttpd": [
+					"write"
+				],
+				"/etc/config/lighttpd": [
+					"write"
 				]
 			},
 			"uci": [
@@ -90,7 +152,10 @@
 				"wireless",
 				"dhcp",
 				"firewall",
-				"taskplan"
+				"taskplan",
+				"wizard",
+				"netwizard",
+				"nginx"
 			],
 			"execute": {
 				"/etc/init.d/quickactions-taskplan": [
@@ -98,6 +163,18 @@
 					"stop",
 					"restart",
 					"reload"
+				],
+				"/usr/libexec/quickactions-netwizard/apply-aggressive.sh": [
+					"exec"
+				],
+				"/usr/libexec/quickactions-netwizard/backup.sh": [
+					"exec"
+				],
+				"/usr/libexec/quickactions-netwizard/restore.sh": [
+					"exec"
+				],
+				"/usr/libexec/quickactions-netwizard/apply-shortcuts.sh": [
+					"exec"
 				]
 			}
 		}

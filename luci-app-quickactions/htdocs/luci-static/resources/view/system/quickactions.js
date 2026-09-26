@@ -2306,6 +2306,723 @@ return view.extend({
         return E('div', {}, [subBar, content]);
     },
 
+    nsFormSave: function(changes) {
+        // Changes is a flat list of [config, section, option, value]
+        var self = this;
+        return self.callSystemCommand('/usr/libexec/quickactions-netwizard/backup.sh', [])
+            .catch(function(){ return {}; })
+            .then(function() {
+                return uci.load('network').catch(function(){});
+            })
+            .then(function() { return uci.load('firewall').catch(function(){}); })
+            .then(function() { return uci.load('dhcp').catch(function(){}); })
+            .then(function() { return uci.load('wireless').catch(function(){}); })
+            .then(function() { return uci.load('wizard').catch(function(){}); })
+            .then(function() { return uci.load('netwizard').catch(function(){}); })
+            .then(function() {
+                changes.forEach(function(c) {
+                    try { uci.set(c[0], c[1], c[2], c[3]); } catch(e) {}
+                });
+                return uci.save();
+            });
+    },
+
+    nsShow: function(id) {
+        var self = this;
+        this.nsCurrent = id;
+        var btns = document.querySelectorAll('.qa-ns-sub');
+        for (var i = 0; i < btns.length; i++) {
+            var b = btns[i];
+            var bid = b.getAttribute('data-ns');
+            if (bid === id) { b.style.borderBottomColor = '#1e90ff'; b.style.color = '#1e90ff'; b.style.fontWeight = 'bold'; }
+            else { b.style.borderBottomColor = 'transparent'; b.style.color = '#666'; b.style.fontWeight = '500'; }
+        }
+        this.nsContent.innerHTML = '';
+        this.nsContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ' + id + '...'));
+        var builder = { mode: 'renderNsMode', wan: 'renderNsWan', wireless: 'renderNsWireless',
+                        firmware: 'renderNsFirmware', shortcuts: 'renderNsShortcuts', advanced: 'renderNsAdvanced' }[id];
+        Promise.resolve(self[builder]()).then(function(node) {
+            self.nsContent.innerHTML = '';
+            self.nsContent.appendChild(node);
+        }).catch(function(err) {
+            self.nsContent.innerHTML = '';
+            self.nsContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Error: ' + (err && err.message ? err.message : String(err))));
+        });
+    },
+
+    renderNetworkSetup: function() {
+        var self = this;
+        // Load all configs this tab touches
+        var pkgs = ['network', 'wireless', 'dhcp', 'firewall', 'wizard', 'netwizard', 'uhttpd', 'nginx'];
+        var loads = pkgs.map(function(p) { return uci.load(p).catch(function(){ return null; }); });
+        return Promise.all(loads).then(function() {
+            return self.renderNetworkSetupInner();
+        });
+    },
+
+    renderNetworkSetupInner: function() {
+        var self = this;
+        var subs = [
+            { id: 'mode', label: 'Mode Selection' },
+            { id: 'wan', label: 'WAN Settings' },
+            { id: 'wireless', label: 'Wireless' },
+            { id: 'firmware', label: 'Firmware' },
+            { id: 'shortcuts', label: 'Shortcuts' },
+            { id: 'advanced', label: 'Advanced' }
+        ];
+        var subBar = E('div', { 'style': 'display:flex;gap:4px;border-bottom:2px solid rgba(0,0,0,0.08);margin:0 0 16px 0;flex-wrap:wrap;' });
+        subs.forEach(function(t) {
+            subBar.appendChild(E('div', {
+                'class': 'qa-ns-sub', 'data-ns': t.id,
+                'style': 'padding:8px 16px;cursor:pointer;border-bottom:3px solid transparent;color:#666;font-weight:500;font-size:0.9em;user-select:none;',
+                'click': function() { self.nsShow(t.id); }
+            }, t.label));
+        });
+        this.nsSubBar = subBar;
+        this.nsContent = E('div');
+
+        var intro = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
+            E('strong', {}, 'Smart mode: '),
+            E('span', {}, 'Only fields you change are written. Backup taken before every apply. Aggressive rebuild available in Advanced.')
+        ]);
+
+        setTimeout(function() { self.nsShow('mode'); }, 0);
+        return E('div', {}, [intro, subBar, this.nsContent]);
+    },
+
+    renderNsMode: function() {
+        var self = this;
+        var currentProto = uci.get('wizard', 'default', 'wan_proto');
+        if (!currentProto) {
+            // Scan all network interfaces for wan-like protos
+            var wanSecs = uci.sections('network', 'interface') || [];
+            var hasPppoe = false, hasDhcp = false, hasStatic = false, hasSiderouter = false;
+            wanSecs.forEach(function(s) {
+                var p = s.proto || '';
+                if (p === 'pppoe') hasPppoe = true;
+                else if (p === 'dhcp' || p === 'dhcpv6') hasDhcp = true;
+                else if (p === 'static' && s.ipaddr && s.gateway) hasSiderouter = true;
+            });
+            // Detect siderouter: lan has explicit gateway but wan is missing or auto=0
+            var lanGw = uci.get('network', 'lan', 'gateway');
+            var wanAuto = uci.get('network', 'wan', 'auto');
+            if (lanGw && (wanAuto === '0' || !uci.get('network', 'wan'))) {
+                currentProto = 'siderouter';
+            } else if (hasPppoe) {
+                currentProto = 'pppoe';
+            } else if (hasDhcp) {
+                currentProto = 'dhcp';
+            } else if (hasSiderouter) {
+                currentProto = 'siderouter';
+            } else {
+                currentProto = 'dhcp';
+            }
+        }
+
+        function card(mode, label, desc, color) {
+            var active = (currentProto === mode);
+            var c = E('div', {
+                'style': 'flex:1;min-width:200px;max-width:280px;border:2px solid ' + (active ? color : 'transparent') + ';border-radius:10px;padding:22px 16px;cursor:pointer;text-align:center;background:rgba(0,0,0,' + (active ? '0.08' : '0.02') + ');transition:all 0.2s;',
+                'onmouseover': function() { this.style.transform = 'translateY(-2px)'; },
+                'onmouseout': function() { this.style.transform = 'translateY(0)'; },
+                'click': function() {
+                    if (!confirm('Switch mode to "' + label + '"?\n\nFinish configuration in WAN Settings.')) return;
+                    uci.load('wizard').then(function() {
+                        uci.set('wizard', 'default', 'wan_proto', mode);
+                        return uci.save();
+                    }).then(function() {
+                        ui.addNotification('Mode set', 'Now fill in WAN Settings.', 'info');
+                        self.nsShow('wan');
+                    }).catch(function(err) {
+                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    });
+                }
+            }, [
+                E('div', { 'style': 'font-size:2.5em;margin-bottom:8px;' }, mode === 'pppoe' ? '🛰️' : (mode === 'dhcp' ? '🔌' : '🔀')),
+                E('div', { 'style': 'font-weight:bold;font-size:1.1em;color:' + color + ';margin-bottom:6px;' }, label),
+                E('div', { 'style': 'font-size:0.85em;color:#888;line-height:1.4;' }, desc),
+                active ? E('div', { 'style': 'margin-top:10px;font-size:0.8em;font-weight:bold;color:' + color + ';' }, '● CURRENT') : null
+            ]);
+            return c;
+        }
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, 'Select Network Mode'),
+            E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Choose the mode that matches your setup.'),
+            E('div', { 'style': 'display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;' }, [
+                card('dhcp', 'DHCP Client', 'Default router. WAN gets IP from upstream.', '#339af0'),
+                card('pppoe', 'PPPoE Dial-up', 'Fiber/DSL. Requires username & password.', '#ff6b6b'),
+                card('siderouter', 'Side-Router', 'Bypass gateway. LAN stays, WAN unused.', '#51cf66')
+            ])
+        ]);
+    },
+
+    renderNsWan: function() {
+        var self = this;
+        var proto = uci.get('wizard', 'default', 'wan_proto') || uci.get('network', 'wan', 'proto') || 'dhcp';
+        var wanIf = uci.get('network', 'wan', 'device') || uci.get('network', 'wan', 'ifname') || 'eth1';
+        var setlan = uci.get('wizard', 'default', 'setlan') || '0';
+
+        // Current network values
+        var lanIpRaw = uci.get('network', 'lan', 'ipaddr');
+        var lanIp;
+        if (Array.isArray(lanIpRaw)) {
+            // Show first, warn user in info box below
+            lanIp = lanIpRaw[0] || '192.168.10.1';
+        } else {
+            lanIp = lanIpRaw || '192.168.10.1';
+        }
+        // Strip CIDR for the editable field
+        lanIp = String(lanIp).split(' ')[0];
+        var lanMask = uci.get('network', 'lan', 'netmask') || '255.255.255.0';
+        var lanGw = uci.get('network', 'lan', 'gateway') || '';
+        var lanProto = uci.get('network', 'lan', 'proto') || 'static';
+        var lanDns = uci.get('network', 'lan', 'dns');
+        var dhcpProto = uci.get('network', 'wan', 'proto') === 'static' ? 'static' : 'dhcp';
+        var wanIp = uci.get('network', 'wan', 'ipaddr') || '';
+        var wanMask = uci.get('network', 'wan', 'netmask') || '255.255.255.0';
+        var wanGw = uci.get('network', 'wan', 'gateway') || '';
+        var wanDns = uci.get('network', 'wan', 'dns');
+        var pppoeU = uci.get('network', 'wan', 'username') || '';
+        var pppoeP = uci.get('network', 'wan', 'password') || '';
+        var ipv6On = (uci.get('network', 'wan', 'ipv6') || 'auto') !== '0';
+        var lanDhcpOff = uci.get('dhcp', 'lan', 'ignore') === '1';
+        var dnsset = uci.get('wizard', 'default', 'dnsset') || '0';
+        var dnsTables = uci.get('wizard', 'default', 'dns_tables') || '1';
+        var synflood = uci.get('wizard', 'default', 'synflood') || '0';
+
+        function vRow(label, id, val, type, ph) {
+            return E('div', { 'style': 'margin-bottom:10px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, label),
+                E('input', { 'id': 'ns-wan-' + id, 'type': type || 'text', 'value': val, 'placeholder': ph || '', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;box-sizing:border-box;' })
+            ]);
+        }
+        function fRow(label, id, val, hint) {
+            var cb = E('input', { 'id': 'ns-wan-' + id, 'type': 'checkbox' });
+            cb.checked = !!val;
+            return E('div', { 'style': 'margin-bottom:10px;display:flex;align-items:center;gap:8px;' }, [
+                cb, E('label', { 'style': 'font-size:0.9em;' }, label),
+                hint ? E('span', { 'style': 'font-size:0.78em;color:#888;' }, hint) : null
+            ]);
+        }
+        function selRow(label, id, val, options) {
+            var s = E('select', { 'id': 'ns-wan-' + id, 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;' });
+            options.forEach(function(o) {
+                var opt = E('option', { 'value': o[0] }, o[1]);
+                if (o[0] === val) opt.selected = true;
+                s.appendChild(opt);
+            });
+            return E('div', { 'style': 'margin-bottom:10px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, label), s
+            ]);
+        }
+        function dnsRow(label, id, val) {
+            var v = (Array.isArray(val) ? val.join(', ') : (val || ''));
+            return E('div', { 'style': 'margin-bottom:10px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, label),
+                E('input', { 'id': 'ns-wan-' + id, 'type': 'text', 'value': v, 'placeholder': '1.1.1.1, 8.8.8.8', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;' })
+            ]);
+        }
+
+        // device list
+        var netDevs = [];
+        try {
+            var devices = uci.sections('network', 'device') || [];
+            devices.forEach(function(d) { if (d.name && !/^br-|^@/.test(d.name)) netDevs.push(d.name); });
+        } catch(e){}
+        // fallback
+        ['eth0','eth1','eth2','wan'].forEach(function(d) { if (netDevs.indexOf(d) === -1) netDevs.push(d); });
+
+        var rows = [];
+
+        rows.push(selRow('WAN Protocol / Mode', 'proto', proto, [
+            ['dhcp', 'DHCP Client'],
+            ['pppoe', 'PPPoE Dial-up'],
+            ['siderouter', 'Side-Router']
+        ]));
+
+        if (proto !== 'siderouter') {
+            rows.push(selRow('WAN interface device', 'iface', wanIf, netDevs.map(function(d){ return [d, d]; })));
+            rows.push(fRow('Add LAN port configuration (setlan)', 'setlan', setlan === '1'));
+        }
+
+        if (proto === 'pppoe') {
+            rows.push(vRow('PPPoE Username', 'pppoe_u', pppoeU));
+            rows.push(vRow('PPPoE Password', 'pppoe_p', pppoeP, 'password'));
+        }
+
+        if (proto === 'dhcp') {
+            rows.push(selRow('WAN IP address mode', 'dhcp_proto', dhcpProto, [
+                ['dhcp', 'DHCP (automatic)'],
+                ['static', 'Static IP']
+            ]));
+            if (dhcpProto === 'static') {
+                rows.push(vRow('WAN IPv4 Address', 'wan_ip', wanIp));
+                rows.push(vRow('WAN IPv4 Netmask', 'wan_mask', wanMask));
+                rows.push(vRow('WAN IPv4 Gateway', 'wan_gw', wanGw));
+            }
+        }
+
+        if (proto === 'dhcp' || proto === 'pppoe') {
+            rows.push(dnsRow('WAN custom DNS (comma-separated, empty = auto)', 'wan_dns', wanDns));
+        }
+
+        if (proto === 'siderouter') {
+            rows.push(selRow('LAN IP address mode', 'lan_proto', lanProto, [
+                ['static', 'Static IP'],
+                ['dhcp', 'DHCP client']
+            ]));
+        }
+
+        // LAN IP fields
+        var showLan = (proto === 'siderouter') || (proto !== 'siderouter' && setlan === '1');
+        if (showLan) {
+            rows.push(vRow('LAN IPv4 Address', 'lan_ip', lanIp));
+            rows.push(selRow('LAN IPv4 Netmask', 'lan_mask', lanMask, [
+                ['255.255.255.0', '255.255.255.0 (/24)'],
+                ['255.255.0.0', '255.255.0.0 (/16)'],
+                ['255.0.0.0', '255.0.0.0 (/8)']
+            ]));
+            if (proto === 'siderouter') {
+                rows.push(vRow('LAN Gateway (upstream router IP)', 'lan_gw', lanGw));
+                rows.push(dnsRow('LAN custom DNS (comma-separated)', 'lan_dns', lanDns));
+            }
+        }
+
+        rows.push(fRow('Enable IPv6', 'ipv6', ipv6On));
+        rows.push(fRow('Disable DHCP Server on LAN', 'lan_dhcp_off', lanDhcpOff,
+            'Recommended for siderouter mode.'));
+        rows.push(fRow('Enable DNS notification to clients', 'dnsset', dnsset === '1'));
+        if (dnsset === '1') {
+            rows.push(selRow('DNS to push to clients', 'dns_tables', dnsTables, [
+                ['1', 'Use router LAN IP (default)'],
+                ['223.5.5.5', 'Ali DNS: 223.5.5.5'],
+                ['8.8.8.8', 'Google DNS: 8.8.8.8'],
+                ['1.1.1.1', 'Cloudflare DNS: 1.1.1.1']
+            ]));
+        }
+        rows.push(fRow('Enable SYN-flood defense', 'synflood', synflood === '1',
+            'Adds firewall.syn_flood=1, synflood_protect=1.'));
+
+        var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
+            var changes = [];
+            var list = [];
+
+            var get = function(id) { var e = document.getElementById('ns-wan-' + id); return e ? e.value : ''; };
+            var getCb = function(id) { var e = document.getElementById('ns-wan-' + id); return e && e.checked; };
+
+            var nProto = get('proto');
+            var nIface = get('iface');
+            var nSetlan = getCb('setlan') ? '1' : '0';
+
+            // Mode change
+            if (nProto !== proto) {
+                changes.push(['wizard', 'default', 'wan_proto', nProto]);
+                list.push('Mode → ' + nProto);
+
+                // Mode-specific network writes
+                if (nProto === 'siderouter') {
+                    changes.push(['network', 'wan', 'auto', '0']);
+                    changes.push(['firewall', 'lan', 'masq', '1']);
+                } else {
+                    changes.push(['network', 'wan', 'proto', nProto]);
+                    changes.push(['network', 'wan', 'auto', '1']);
+                    changes.push(['firewall', 'lan', 'masq', '0']);
+                }
+            }
+
+            if (nProto !== 'siderouter' && nIface && nIface !== wanIf) {
+                changes.push(['network', 'wan', 'device', nIface]);
+                list.push('WAN device → ' + nIface);
+            }
+
+            if (nSetlan !== setlan) {
+                changes.push(['wizard', 'default', 'setlan', nSetlan]);
+                list.push('setlan → ' + nSetlan);
+            }
+
+            if (nProto === 'pppoe') {
+                var nu = get('pppoe_u'), np = get('pppoe_p');
+                if (nu !== pppoeU) { changes.push(['network', 'wan', 'username', nu]); list.push('PPPoE username'); }
+                if (np !== pppoeP) { changes.push(['network', 'wan', 'password', np]); list.push('PPPoE password'); }
+            }
+
+            if (nProto === 'dhcp') {
+                var ndp = get('dhcp_proto');
+                if (ndp === 'static') {
+                    if (get('wan_ip')) { changes.push(['network', 'wan', 'ipaddr', get('wan_ip')]); list.push('WAN IP → ' + get('wan_ip')); }
+                    if (get('wan_mask')) { changes.push(['network', 'wan', 'netmask', get('wan_mask')]); list.push('WAN mask'); }
+                    if (get('wan_gw')) { changes.push(['network', 'wan', 'gateway', get('wan_gw')]); list.push('WAN GW'); }
+                    changes.push(['network', 'wan', 'proto', 'static']);
+                }
+            }
+
+            if (nProto === 'dhcp' || nProto === 'pppoe') {
+                var wdns = get('wan_dns').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+                if (wdns.length) { changes.push(['network', 'wan', 'dns', wdns]); list.push('WAN DNS set'); }
+            }
+
+            // LAN fields
+            if (showLan) {
+                var nLanIp = get('lan_ip');
+                var nLanMask = get('lan_mask');
+                if (nLanIp && nLanIp !== lanIp) { changes.push(['network', 'lan', 'ipaddr', nLanIp]); list.push('LAN IP → ' + nLanIp); }
+                if (nLanMask && nLanMask !== lanMask) { changes.push(['network', 'lan', 'netmask', nLanMask]); list.push('LAN mask → ' + nLanMask); }
+                if (nProto === 'siderouter') {
+                    var nGw = get('lan_gw');
+                    if (nGw !== lanGw) { changes.push(['network', 'lan', 'gateway', nGw || '']); list.push('LAN GW → ' + (nGw || '(none)')); }
+                    var ldns = get('lan_dns').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+                    changes.push(['network', 'lan', 'dns', ldns]);
+                    if (ldns.length) list.push('LAN DNS set');
+
+                    var nlp = get('lan_proto');
+                    if (nlp !== lanProto) { changes.push(['network', 'lan', 'proto', nlp]); list.push('LAN proto → ' + nlp); }
+                }
+            }
+
+            var nIpv6 = getCb('ipv6');
+            if (nIpv6 !== ipv6On) {
+                changes.push(['network', 'wan', 'ipv6', nIpv6 ? 'auto' : '0']);
+                list.push('IPv6 → ' + (nIpv6 ? 'on' : 'off'));
+            }
+
+            var nDhcpOff = getCb('lan_dhcp_off');
+            if (nDhcpOff !== lanDhcpOff) {
+                changes.push(['dhcp', 'lan', 'ignore', nDhcpOff ? '1' : '0']);
+                list.push('LAN DHCP → ' + (nDhcpOff ? 'off' : 'on'));
+            }
+
+            var nDnsset = getCb('dnsset') ? '1' : '0';
+            if (nDnsset !== dnsset) {
+                changes.push(['wizard', 'default', 'dnsset', nDnsset]);
+                list.push('DNS notify → ' + nDnsset);
+            }
+            if (nDnsset === '1') {
+                var ndt = get('dns_tables');
+                if (ndt !== dnsTables) { changes.push(['wizard', 'default', 'dns_tables', ndt]); list.push('DNS push → ' + ndt); }
+            }
+
+            var nSf = getCb('synflood') ? '1' : '0';
+            if (nSf !== synflood) {
+                changes.push(['wizard', 'default', 'synflood', nSf]);
+                if (nSf === '1') { changes.push(['firewall', '@defaults[0]', 'syn_flood', '1']); changes.push(['firewall', '@defaults[0]', 'synflood_protect', '1']); }
+                else { changes.push(['firewall', '@defaults[0]', 'syn_flood', '0']); changes.push(['firewall', '@defaults[0]', 'synflood_protect', '0']); }
+                list.push('SYN-flood → ' + nSf);
+            }
+
+            if (list.length === 0) { ui.addNotification('No changes', 'Nothing to save.', 'info'); return; }
+            if (!confirm('Save WAN changes?\n\n• ' + list.join('\n• ') + '\n\nBackup will be taken first.')) return;
+
+            ui.addNotification('Saving', list.length + ' change(s) applying...', 'info');
+            var lanIpChanged = (showLan && get('lan_ip') && get('lan_ip') !== lanIp);
+
+            self.nsFormSave(changes).then(function() {
+                return self.callSystemCommand('/bin/sh', ['-c',
+                    '/etc/init.d/network reload; /etc/init.d/dhcp reload; /etc/init.d/firewall reload'
+                ]).catch(function(){ return {}; });
+            }).then(function() {
+                if (lanIpChanged) {
+                    // Redirect modal (matches wizard source)
+                    var newIp = get('lan_ip');
+                    var sec = 15;
+                    var countSpan = E('strong', {}, String(sec));
+                    ui.showModal(_('LAN IP Address Changed'), [
+                        E('p', {}, ['New LAN IP: ', E('strong', {}, newIp)]),
+                        E('p', {}, ['Redirecting in ', countSpan, ' seconds...']),
+                        E('div', { 'style': 'margin-top:10px;text-align:right;' }, [
+                            E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() { window.location.href = window.location.protocol + '//' + newIp + '/cgi-bin/luci/'; } }, 'Redirect Now')
+                        ])
+                    ]);
+                    var timer = setInterval(function() {
+                        sec--;
+                        countSpan.textContent = String(sec);
+                        if (sec <= 0) { clearInterval(timer); window.location.href = window.location.protocol + '//' + newIp + '/cgi-bin/luci/'; }
+                    }, 1000);
+                } else {
+                    ui.addNotification('Saved', 'Network settings updated.', 'info');
+                    self.nsShow('wan');
+                }
+            }).catch(function(err) {
+                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+            });
+        } }, _('Save WAN Settings (smart diff)'));
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, 'WAN Settings — ' + proto),
+            E('div', { 'style': 'background:rgba(0,0,0,0.03);border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;' }, [
+                E('div', {}, ['Current mode: ', E('strong', {}, proto)]),
+                E('div', {}, ['WAN device: ', E('code', {}, wanIf)]),
+                E('div', {}, ['LAN IP: ', E('code', {}, lanIp + '/' + lanMask)])
+            ]),
+            E('div', {}, rows),
+            saveBtn
+        ]);
+    },
+
+    renderNsWireless: function() {
+        var self = this;
+        var devices = uci.sections('wireless', 'wifi-device') || [];
+        if (devices.length === 0) return E('div', { 'class': 'alert-message warning' }, 'No wireless devices detected.');
+
+        var ifaces = uci.sections('wireless', 'wifi-iface') || [];
+        var apIfaces = ifaces.filter(function(i){ return i.mode === 'ap' || !i.mode; });
+        if (apIfaces.length === 0) return E('div', { 'class': 'alert-message warning' }, 'No AP wireless interfaces found.');
+
+        // Get base SSID (strip band suffix from first AP)
+        var rawSsid = apIfaces[0].ssid || '';
+        var baseSsid = rawSsid.replace(/_(2\.4G|5G|6G)$/i, '').trim();
+        var key = apIfaces[0].key || '';
+        var enc = apIfaces[0].encryption || 'psk2';
+
+        var ssidIn = E('input', { 'id': 'ns-wl-ssid', 'type': 'text', 'value': baseSsid, 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        var keyIn = E('input', { 'id': 'ns-wl-key', 'type': 'password', 'value': key, 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        var encSel = E('select', { 'id': 'ns-wl-enc', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        [['psk2','WPA2-PSK'],['sae','WPA3-SAE'],['sae-mixed','WPA2/WPA3 Mixed'],['psk','WPA-PSK'],['none','Open']].forEach(function(o) {
+            var opt = E('option', { 'value': o[0] }, o[1]);
+            if (o[0] === enc) opt.selected = true;
+            encSel.appendChild(opt);
+        });
+
+        var bandInfo = apIfaces.map(function(i) {
+            var dev = devices.filter(function(d){ return d['.name'] === i.device; })[0];
+            var band = '2.4G';
+            if (dev) {
+                if (dev.band === '5g') band = '5G';
+                else if (dev.band === '6g') band = '6G';
+                else if (/^11a/.test(dev.hwmode || '') && !/^11ax/.test(dev.hwmode || '')) band = '5G';
+            }
+            return { iface: i['.name'], device: i.device, band: band };
+        });
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, 'Wireless Settings'),
+            E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Base SSID will auto-append _2.4G, _5G, _6G per radio.'),
+            E('div', { 'style': 'margin-bottom:12px;font-size:0.85em;' }, bandInfo.map(function(b) {
+                return E('div', {}, [b.device + ' (' + b.band + ') → AP: ', E('code', {}, b.iface)]);
+            })),
+            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Base SSID'), ssidIn]),
+            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Encryption'), encSel]),
+            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Password'), keyIn]),
+            E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
+                var ns = document.getElementById('ns-wl-ssid').value.trim();
+                var nk = document.getElementById('ns-wl-key').value;
+                var ne = document.getElementById('ns-wl-enc').value;
+                if (!ns) { ui.addNotification('Error', 'SSID required.', 'danger'); return; }
+                if (ne !== 'none' && nk && nk.length < 8) { ui.addNotification('Error', 'Password must be ≥ 8 chars.', 'danger'); return; }
+                if (!confirm('Apply wireless changes? SSID: ' + ns + ', encryption: ' + ne)) return;
+
+                var changes = [];
+                bandInfo.forEach(function(b) {
+                    var newSsid = ns + '_' + b.band;
+                    changes.push(['wireless', b.iface, 'ssid', newSsid]);
+                    changes.push(['wireless', b.iface, 'encryption', ne]);
+                    if (ne !== 'none' && nk) changes.push(['wireless', b.iface, 'key', nk]);
+                    changes.push(['wireless', b.iface, 'disabled', '0']);
+                });
+                // Also update wizard store
+                changes.push(['wizard', 'default', 'wifi_ssid', ns]);
+                changes.push(['wizard', 'default', 'wifi_key', nk]);
+
+                self.nsFormSave(changes).then(function() {
+                    return self.callSystemCommand('/bin/sh', ['-c', '/sbin/wifi reload']);
+                }).then(function() {
+                    ui.addNotification('Saved', 'Wireless updated.', 'info');
+                    self.nsShow('wireless');
+                }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+            } }, _('Save Wireless'))
+        ]);
+    },
+
+    renderNsFirmware: function() {
+        var self = this;
+        var cur = {
+            autoupgrade_fm: uci.get('wizard', 'default', 'autoupgrade_fm') || '1',
+            coremark: uci.get('wizard', 'default', 'coremark') || '0',
+            cookie_p: uci.get('wizard', 'default', 'persistent_cookies') || '1',
+            https: uci.get('wizard', 'default', 'https') || '0',
+            landing_page: uci.get('wizard', 'default', 'landing_page') || 'default'
+        };
+        function fRow(label, id, val, hint) {
+            var cb = E('input', { 'id': 'ns-fw-' + id, 'type': 'checkbox' });
+            cb.checked = (val === '1');
+            return E('div', { 'style': 'margin-bottom:12px;display:flex;align-items:center;gap:8px;' }, [
+                cb, E('label', { 'style': 'font-size:0.9em;' }, label),
+                hint ? E('span', { 'style': 'font-size:0.78em;color:#888;' }, hint) : null
+            ]);
+        }
+        var landingSel = E('select', { 'id': 'ns-fw-landing', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        [['default','Default'],['routerdog','RouterDog'],['nas','NAS'],['next-nas','Next-NAS'],['router','Router']].forEach(function(o) {
+            var opt = E('option', { 'value': o[0] }, o[1]);
+            if (o[0] === cur.landing_page) opt.selected = true;
+            landingSel.appendChild(opt);
+        });
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, 'Firmware & System Settings'),
+            fRow('Firmware upgrade notices', 'autoupgrade', cur.autoupgrade_fm),
+            fRow('Run CoreMark on boot', 'coremark', cur.coremark, 'Runs once into /etc/bench.log.'),
+            fRow('Persistent login cookies', 'cookie', cur.cookie_p),
+            fRow('Enforce HTTPS redirect', 'https', cur.https, 'Requires uhttpd SSL or nginx.'),
+            E('div', { 'style': 'margin-bottom:12px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Landing page'), landingSel
+            ]),
+            E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
+                var changes = [];
+                var list = [];
+                var na = document.getElementById('ns-fw-autoupgrade').checked ? '1' : '0';
+                var nc = document.getElementById('ns-fw-coremark').checked ? '1' : '0';
+                var np = document.getElementById('ns-fw-cookie').checked ? '1' : '0';
+                var nh = document.getElementById('ns-fw-https').checked ? '1' : '0';
+                var nl = document.getElementById('ns-fw-landing').value;
+                if (na !== cur.autoupgrade_fm) { changes.push(['wizard', 'default', 'autoupgrade_fm', na]); list.push('upgrade notices → ' + na); }
+                if (nc !== cur.coremark) { changes.push(['wizard', 'default', 'coremark', nc]); list.push('coremark → ' + nc); }
+                if (np !== cur.cookie_p) { changes.push(['wizard', 'default', 'persistent_cookies', np]); list.push('cookies → ' + np); }
+                if (nh !== cur.https) { changes.push(['wizard', 'default', 'https', nh]); list.push('https → ' + nh); }
+                if (nl !== cur.landing_page) { changes.push(['wizard', 'default', 'landing_page', nl]); list.push('landing → ' + nl); }
+                if (list.length === 0) { ui.addNotification('No changes', 'Nothing to save.', 'info'); return; }
+                if (!confirm('Save firmware settings?\n\n• ' + list.join('\n• '))) return;
+                self.nsFormSave(changes).then(function() {
+                    // Re-run init to pick up cookie/https changes
+                    return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-netwizard restart']).catch(function(){ return {}; });
+                }).then(function() {
+                    ui.addNotification('Saved', 'Firmware settings updated.', 'info');
+                }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+            } }, _('Save Firmware Settings'))
+        ]);
+    },
+
+    renderNsShortcuts: function() {
+        var self = this;
+        return fs.stat('/etc/config/nginx').then(function() {
+            return uci.load('wizard').catch(function(){}).then(function() {
+                var secs = uci.sections('wizard', 'shortcuts') || [];
+                var grid = E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:12px;' });
+                secs.forEach(function(s) {
+                    var sid = s['.name'];
+                    var label = s.shortcut || sid;
+                    var url = s.to_url || '';
+                    grid.appendChild(E('div', { 'style': 'background:rgba(0,0,0,0.03);border-radius:6px;padding:12px;' }, [
+                        E('div', { 'style': 'font-weight:bold;margin-bottom:4px;' }, label + '/'),
+                        E('div', { 'style': 'font-size:0.85em;color:#888;word-break:break-all;margin-bottom:8px;' }, url),
+                        E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
+                            if (!confirm('Delete shortcut "' + label + '"?')) return;
+                            uci.load('wizard').then(function() { uci.remove('wizard', sid); return uci.save(); })
+                                .then(function() { return self.callSystemCommand('/usr/libexec/quickactions-netwizard/apply-shortcuts.sh', []).catch(function(){ return {}; }); })
+                                .then(function() { ui.addNotification('Deleted', label, 'info'); self.nsShow('shortcuts'); });
+                        } }, 'Delete')
+                    ]));
+                });
+                if (secs.length === 0) grid.appendChild(E('p', { 'style': 'color:#888;' }, 'No shortcuts yet.'));
+
+                var scIn = E('input', { 'id': 'ns-sc-key', 'placeholder': 'g', 'style': 'padding:6px 10px;border:1px solid #ccc;border-radius:4px;width:120px;' });
+                var urlIn = E('input', { 'id': 'ns-sc-url', 'placeholder': 'https://google.com', 'style': 'padding:6px 10px;border:1px solid #ccc;border-radius:4px;width:280px;' });
+
+                return E('div', {}, [
+                    E('h3', { 'style': 'margin-top:0;' }, 'Shortcuts (nginx + dnsmasq)'),
+                    E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Type shortcut + "/" in any browser on this network → redirects.'),
+                    grid,
+                    E('div', { 'style': 'margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;' }, [
+                        scIn, E('span', {}, '→'), urlIn,
+                        E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
+                            var k = document.getElementById('ns-sc-key').value.trim();
+                            var u = document.getElementById('ns-sc-url').value.trim();
+                            if (!k || !/^[a-zA-Z0-9_-]+$/.test(k)) { ui.addNotification('Error', 'Shortcut must be alphanumeric.', 'danger'); return; }
+                            if (!u || !/^https?:\/\//i.test(u)) { ui.addNotification('Error', 'URL must start with http(s)://', 'danger'); return; }
+                            uci.load('wizard').then(function() {
+                                var sid = 'sc_' + k + '_' + Date.now();
+                                uci.add('wizard', 'shortcuts', sid);
+                                uci.set('wizard', sid, 'shortcut', k);
+                                uci.set('wizard', sid, 'to_url', u);
+                                return uci.save();
+                            }).then(function() {
+                                return self.callSystemCommand('/usr/libexec/quickactions-netwizard/apply-shortcuts.sh', []).catch(function(){ return {}; });
+                            }).then(function() {
+                                ui.addNotification('Added', k + ' → ' + u, 'info');
+                                self.nsShow('shortcuts');
+                            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                        } }, 'Add')
+                    ])
+                ]);
+            });
+        }).catch(function() {
+            return E('div', { 'class': 'alert-message notice' }, 'Shortcuts require nginx. Install nginx package to enable.');
+        });
+    },
+
+    renderNsAdvanced: function() {
+        var self = this;
+        var aggressiveMode = false;
+
+        var backupBtn = E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
+            ui.addNotification('Backing up', 'Creating backup...', 'info');
+            self.callSystemCommand('/usr/libexec/quickactions-netwizard/backup.sh', []).then(function(r) {
+                var out = (r.stdout || '') + (r.stderr ? '\n' + r.stderr : '');
+                ui.addNotification('Backup complete', E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:10px;border-radius:4px;font-size:0.85em;' }, out), 'info');
+            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+        } }, 'Backup Now');
+
+        var listBtn = E('button', { 'class': 'btn cbi-button', 'click': function() {
+            self.callSystemCommand('/usr/libexec/quickactions-netwizard/list-backups.sh', []).then(function(r) {
+                var out = (r.stdout || '(none)').trim();
+                var ul = E('div', { 'style': 'margin-top:10px;' });
+                if (!out) ul.appendChild(E('div', { 'style': 'color:#888;' }, 'No backups yet.'));
+                out.split('\n').forEach(function(line) {
+                    if (!line.trim()) return;
+                    ul.appendChild(E('div', { 'style': 'display:flex;gap:10px;align-items:center;padding:6px;border-bottom:1px solid rgba(0,0,0,0.06);' }, [
+                        E('code', { 'style': 'flex:1;font-size:0.85em;' }, line),
+                        E('button', { 'class': 'btn cbi-button cbi-button-action', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
+                            if (!confirm('Restore from ' + line + '?\n\nCurrent config will be saved as pre-restore backup first.')) return;
+                            self.callSystemCommand('/usr/libexec/quickactions-netwizard/restore.sh', [line]).then(function(rr) {
+                                ui.addNotification('Restored', E('pre', { 'style': 'text-align:left;white-space:pre-wrap;' }, (rr.stdout || '') + (rr.stderr ? '\n' + rr.stderr : '')), 'info');
+                            });
+                        } }, 'Restore')
+                    ]));
+                });
+                ui.addNotification('Backups', ul, 'info');
+            });
+        } }, 'List Backups');
+
+        var aggressiveSection = E('div', { 'style': 'margin-top:20px;padding:14px;border:1px solid rgba(220,53,69,0.4);border-radius:8px;background:rgba(220,53,69,0.06);' }, [
+            E('h4', { 'style': 'margin:0 0 8px 0;color:#dc3545;' }, '⚠️ Aggressive Mode (opt-in)'),
+            E('p', { 'style': 'font-size:0.9em;margin:0 0 12px 0;' }, 'Matches the original wizard: DELETES and RECREATES WAN, wan6, lan6, and the WAN firewall zone. Custom WAN routes / WAN firewall rules / WAN forwarding rules will be lost. A backup is taken automatically.'),
+            E('label', { 'style': 'display:flex;align-items:center;gap:8px;cursor:pointer;' }, [
+                E('input', { 'type': 'checkbox', 'id': 'ns-adv-agg', 'change': function() { aggressiveMode = this.checked; } }),
+                E('strong', {}, 'I understand — rebuild my network config from scratch')
+            ]),
+            E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:12px;background-color:#dc3545;', 'click': function() {
+                if (!aggressiveMode) { ui.addNotification('Error', 'Check the box above first.', 'danger'); return; }
+                var proto = uci.get('wizard', 'default', 'wan_proto') || 'dhcp';
+                var lanIpRaw = uci.get('network', 'lan', 'ipaddr');
+        var lanIp;
+        if (Array.isArray(lanIpRaw)) {
+            // Show first, warn user in info box below
+            lanIp = lanIpRaw[0] || '192.168.10.1';
+        } else {
+            lanIp = lanIpRaw || '192.168.10.1';
+        }
+        // Strip CIDR for the editable field
+        lanIp = String(lanIp).split(' ')[0];
+                var pu = uci.get('network', 'wan', 'username') || '';
+                var pp = uci.get('network', 'wan', 'password') || '';
+                if (!confirm('AGGRESSIVE REBUILD\n\nMode: ' + proto + '\nLAN: ' + lanIp + '\nPPPoE user: ' + (pu || '(none)') + '\n\nBackup first. Proceed?')) return;
+                ui.addNotification('Running', 'Aggressive apply in progress...', 'info');
+                self.callSystemCommand('/usr/libexec/quickactions-netwizard/apply-aggressive.sh', [proto, lanIp, pu, pp]).then(function(r) {
+                    var out = (r.stdout || '') + (r.stderr ? '\n' + r.stderr : '');
+                    ui.addNotification('Complete', E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:10px;border-radius:4px;font-size:0.85em;' }, out), 'info');
+                }).catch(function(err) {
+                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                });
+            } }, 'Apply Aggressive Rebuild')
+        ]);
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, 'Advanced'),
+            E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Backups, restore, opt-in aggressive rebuild.'),
+            E('div', { 'style': 'display:flex;gap:10px;flex-wrap:wrap;' }, [backupBtn, listBtn]),
+            aggressiveSection
+        ]);
+    },
+
     renderConfigForm: function() {
         var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
         var s = m.section(form.NamedSection, 'global', 'settings', 'Global Settings');
@@ -2373,6 +3090,7 @@ return view.extend({
             { id: 'guestwifi', label: 'Guest WiFi' },
             { id: 'ttyd', label: 'Terminal' },
             { id: 'taskplan', label: 'Task Plan' },
+            { id: 'netwizard', label: 'Network Setup' },
             { id: 'command', label: 'Command' },
             { id: 'dependencies', label: 'Dependencies' },
             { id: 'config', label: 'Configuration' }
@@ -2453,6 +3171,16 @@ return view.extend({
                 });
             }
             else if (id === 'taskplan') tabContent.appendChild(self.renderTaskPlan());
+            else if (id === 'netwizard') {
+                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading network config...'));
+                Promise.resolve(self.renderNetworkSetup()).then(function(node) {
+                    tabContent.innerHTML = '';
+                    tabContent.appendChild(node);
+                }).catch(function(err) {
+                    tabContent.innerHTML = '';
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Network Setup error: ' + (err && err.message ? err.message : String(err))));
+                });
+            }
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
             else if (id === 'config') {
@@ -2477,13 +3205,13 @@ return view.extend({
         var initialTab = 'dashboard';
         try {
             var h = (window.location.hash || '').replace('#', '');
-            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','command','dependencies','config'];
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','config'];
             if (h && known.indexOf(h) !== -1) initialTab = h;
         } catch(e) {}
         showTab(initialTab);
         window.addEventListener('hashchange', function() {
             var nh = (window.location.hash || '').replace('#', '');
-            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','command','dependencies','config'];
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','config'];
             if (nh && known.indexOf(nh) !== -1 && nh !== self.activeTab) showTab(nh);
         });
         return container;
