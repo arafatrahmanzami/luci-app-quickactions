@@ -5,6 +5,7 @@
 'require rpc';
 'require form';
 'require fs';
+'require poll';
 'require dom';
 'require uqr';
 'require tools.widgets as widgets';
@@ -2125,6 +2126,186 @@ return view.extend({
         });
     },
 
+    renderTaskPlanScheduled: function() {
+        return uci.load('taskplan').then(function() {
+            var m = new form.Map('taskplan', _('Scheduled Tasks'),
+                _('Scheduled and startup tasks. Presets include reboot, shutdown, network restart, memory cleanup, custom scripts.'));
+
+            var s = m.section(form.TypedSection, 'global');
+            s.anonymous = true;
+            var e = s.option(form.TextValue, 'customscript', _('Edit Custom Script'));
+            e.description = _('Shell commands for [Customscript] task type');
+            e.rows = 5;
+            e.optional = false;
+            e = s.option(form.TextValue, 'customscript2', _('Edit Custom Script2'));
+            e.description = _('Shell commands for [Customscript2] task type');
+            e.rows = 5;
+            e.optional = false;
+
+            var ss = m.section(form.TypedSection, 'stime', '');
+            ss.addremove = true;
+            ss.anonymous = true;
+            ss.sortable = true;
+            ss.template = 'cbi/tblsection';
+            var remarks = ss.option(form.Value, 'remarks', _('Remarks')); remarks.optional = false;
+            var enable = ss.option(form.Flag, 'enable', _('Enable')); enable.rmempty = false; enable.default = 1;
+            var stype = ss.option(form.ListValue, 'stype', _('Scheduled Type'));
+            stype.value(1, _('Scheduled Reboot'));
+            stype.value(2, _('Scheduled Poweroff'));
+            stype.value(3, _('Scheduled ReNetwork'));
+            stype.value(4, _('Scheduled RestartSamba'));
+            stype.value(5, _('Scheduled Restartwan'));
+            stype.value(6, _('Scheduled Closewan'));
+            stype.value(7, _('Scheduled Clearmem'));
+            stype.value(8, _('Scheduled Sysfree'));
+            stype.value(9, _('Scheduled DisReconn'));
+            stype.value(10, _('Scheduled DisRereboot'));
+            stype.value(11, _('Scheduled Restartmwan3'));
+            stype.value(13, _('Scheduled Wifiup'));
+            stype.value(14, _('Scheduled Wifidown'));
+            stype.value(12, _('Scheduled Customscript'));
+            stype.value(15, _('Scheduled Customscript2'));
+            stype.default = 1;
+            var month = ss.option(form.Value, 'month', _('Month(0~11)')); month.rmempty = false; month.default = '*'; month.datatype = 'string';
+            var week = ss.option(form.Value, 'week', _('Week Day(0~6)')); week.rmempty = true; week.default = '*'; week.datatype = 'string';
+            var hour = ss.option(form.Value, 'hour', _('Hour(0~23)')); hour.rmempty = false; hour.default = 0; hour.datatype = 'string';
+            var minute = ss.option(form.Value, 'minute', _('Minute(0~59)')); minute.rmempty = false; minute.default = 0; minute.datatype = 'string';
+
+            m.apply_on_parse = true;
+            m.on_after_apply = function() {
+                return Promise.resolve();
+            };
+            return m.render();
+        });
+    },
+
+    renderTaskPlanStartup: function() {
+        return uci.load('taskplan').then(function() {
+            var m = new form.Map('taskplan', _('Startup Tasks'),
+                _('Tasks to run after boot, with a delay in seconds.'));
+
+            var s = m.section(form.TypedSection, 'global');
+            s.anonymous = true;
+            var e = s.option(form.TextValue, 'customscript', _('Edit Custom Script')); e.rows = 5; e.optional = false;
+            e = s.option(form.TextValue, 'customscript2', _('Edit Custom Script2')); e.rows = 5; e.optional = false;
+
+            var ls = m.section(form.TypedSection, 'ltime', '');
+            ls.addremove = true; ls.anonymous = true; ls.sortable = true; ls.template = 'cbi/tblsection';
+            var remarks = ls.option(form.Value, 'remarks', _('Remarks')); remarks.optional = false;
+            var enable = ls.option(form.Flag, 'enable', _('Enable')); enable.rmempty = false; enable.default = 1;
+            var stype = ls.option(form.ListValue, 'stype', _('Startup Type'));
+            stype.value(1, _('Scheduled Reboot'));
+            stype.value(2, _('Scheduled Poweroff'));
+            stype.value(3, _('Scheduled ReNetwork'));
+            stype.value(4, _('Scheduled RestartSamba'));
+            stype.value(5, _('Scheduled Restartwan'));
+            stype.value(6, _('Scheduled Closewan'));
+            stype.value(7, _('Scheduled Clearmem'));
+            stype.value(8, _('Scheduled Sysfree'));
+            stype.value(9, _('Scheduled DisReconn'));
+            stype.value(10, _('Scheduled DisRereboot'));
+            stype.value(11, _('Scheduled Restartmwan3'));
+            stype.value(13, _('Scheduled Wifiup'));
+            stype.value(14, _('Scheduled Wifidown'));
+            stype.value(12, _('Scheduled Customscript'));
+            stype.value(15, _('Scheduled Customscript2'));
+            stype.default = 12;
+            var delay = ls.option(form.Value, 'delay', _('Delayed Start(seconds)')); delay.datatype = 'uinteger'; delay.default = 10; delay.optional = false;
+
+            m.apply_on_parse = true;
+            m.on_after_apply = function() { return Promise.resolve(); };
+            return m.render();
+        });
+    },
+
+    renderTaskPlanLog: function() {
+        var self = this;
+        var logPath = '/etc/quickactions-taskplan/taskplan.log';
+        var logArea = E('textarea', {
+            'id': 'qa-tp-log',
+            'readonly': 'readonly',
+            'wrap': 'off',
+            'style': 'width:100%;height:500px;font-family:monospace;font-size:12px;padding:10px;border-radius:4px;background:#1e1e1e;color:#00ff00;box-sizing:border-box;'
+        });
+        var reversed = false;
+
+        function refreshLog() {
+            return fs.read(logPath).catch(function() { return ''; }).then(function(content) {
+                if (reversed) content = content.split('\n').reverse().join('\n');
+                logArea.value = content;
+                if (!reversed) logArea.scrollTop = logArea.scrollHeight;
+            });
+        }
+
+        setTimeout(function() {
+            refreshLog();
+            setInterval(refreshLog, 5000);
+        }, 100);
+
+        var btnClear = E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
+            if (!confirm('Clear the task plan log?')) return;
+            fs.write(logPath, '').then(function() { ui.addNotification('Cleared', 'Log cleared.', 'info'); refreshLog(); }).catch(function(e) { ui.addNotification('Error', e.message, 'danger'); });
+        } }, _('Clear Log'));
+        var btnReverse = E('button', { 'class': 'btn cbi-button cbi-button-edit', 'click': function() { reversed = !reversed; refreshLog(); } }, _('Reverse Order'));
+        var btnDownload = E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
+            fs.read(logPath).then(function(c) {
+                if (!c) { ui.addNotification('Empty', 'Log is empty.', 'info'); return; }
+                var blob = new Blob([c], { type: 'text/plain' });
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'quickactions-taskplan.log';
+                a.click();
+            });
+        } }, _('Download Log'));
+
+        return E('div', {}, [
+            E('div', { 'style': 'margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;' }, [btnClear, btnReverse, btnDownload]),
+            logArea
+        ]);
+    },
+
+    renderTaskPlan: function() {
+        var self = this;
+        var current = 'scheduled';
+        var subButtons = {};
+
+        var subBar = E('div', { 'style': 'display:flex;gap:4px;border-bottom:2px solid rgba(0,0,0,0.08);margin:0 0 16px 0;' });
+        var content = E('div');
+
+        function showSub(id) {
+            current = id;
+            Object.keys(subButtons).forEach(function(k) {
+                var b = subButtons[k];
+                if (k === id) { b.style.borderBottomColor = '#1e90ff'; b.style.color = '#1e90ff'; b.style.fontWeight = 'bold'; }
+                else { b.style.borderBottomColor = 'transparent'; b.style.color = '#666'; b.style.fontWeight = '500'; }
+            });
+            content.innerHTML = '';
+            content.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ' + id + '...'));
+            Promise.resolve().then(function() {
+                if (id === 'scheduled') return self.renderTaskPlanScheduled();
+                if (id === 'startup') return self.renderTaskPlanStartup();
+                if (id === 'log') return self.renderTaskPlanLog();
+            }).then(function(node) {
+                content.innerHTML = '';
+                content.appendChild(node);
+            }).catch(function(err) {
+                content.innerHTML = '';
+                content.appendChild(E('div', { 'class': 'alert-message error' }, 'Task Plan error: ' + (err && err.message ? err.message : String(err))));
+            });
+        }
+
+        [ { id: 'scheduled', label: _('Scheduled Tasks') },
+          { id: 'startup', label: _('Startup Tasks') },
+          { id: 'log', label: _('Log Viewer') } ].forEach(function(t) {
+            var b = E('div', { 'style': 'padding:8px 18px;cursor:pointer;border-bottom:3px solid transparent;color:#666;font-weight:500;font-size:0.9em;user-select:none;', 'click': function() { showSub(t.id); } }, t.label);
+            subButtons[t.id] = b;
+            subBar.appendChild(b);
+        });
+
+        setTimeout(function() { showSub('scheduled'); }, 0);
+        return E('div', {}, [subBar, content]);
+    },
+
     renderConfigForm: function() {
         var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
         var s = m.section(form.NamedSection, 'global', 'settings', 'Global Settings');
@@ -2191,6 +2372,7 @@ return view.extend({
             { id: 'crontab', label: 'Crontab' },
             { id: 'guestwifi', label: 'Guest WiFi' },
             { id: 'ttyd', label: 'Terminal' },
+            { id: 'taskplan', label: 'Task Plan' },
             { id: 'command', label: 'Command' },
             { id: 'dependencies', label: 'Dependencies' },
             { id: 'config', label: 'Configuration' }
@@ -2270,6 +2452,7 @@ return view.extend({
                     tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'ttyd error: ' + (err && err.message ? err.message : String(err))));
                 });
             }
+            else if (id === 'taskplan') tabContent.appendChild(self.renderTaskPlan());
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
             else if (id === 'config') {
@@ -2294,13 +2477,13 @@ return view.extend({
         var initialTab = 'dashboard';
         try {
             var h = (window.location.hash || '').replace('#', '');
-            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','command','dependencies','config'];
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','command','dependencies','config'];
             if (h && known.indexOf(h) !== -1) initialTab = h;
         } catch(e) {}
         showTab(initialTab);
         window.addEventListener('hashchange', function() {
             var nh = (window.location.hash || '').replace('#', '');
-            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','command','dependencies','config'];
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','command','dependencies','config'];
             if (nh && known.indexOf(nh) !== -1 && nh !== self.activeTab) showTab(nh);
         });
         return container;

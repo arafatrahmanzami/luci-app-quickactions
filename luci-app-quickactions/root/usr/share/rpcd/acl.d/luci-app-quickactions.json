@@ -3,25 +3,103 @@
 		"description": "Grant access to Quick Actions",
 		"read": {
 			"ubus": {
-				"file": [ "exec", "read" ],
-				"luci": [ "getInitList", "getThemes" ]
+				"file": [
+					"exec",
+					"read"
+				],
+				"luci": [
+					"getInitList",
+					"getThemes"
+				],
+				"luci.quickactions-taskplan": [
+					"*"
+				]
 			},
 			"file": {
-				"/etc/crontabs/root": [ "read" ],
-				"/etc/config/hotplug": [ "read" ]
+				"/etc/crontabs/root": [
+					"read"
+				],
+				"/etc/config/hotplug": [
+					"read"
+				],
+				"/etc/quickactions-taskplan/taskplan.log": [
+					"read"
+				],
+				"/etc/quickactions-taskplan/taskplancustomscript": [
+					"read"
+				],
+				"/etc/quickactions-taskplan/taskplancustomscript2": [
+					"read"
+				],
+				"/etc/config/taskplan": [
+					"read"
+				]
 			},
-			"uci": [ "luci", "quickactions", "hotplug", "guestwifi", "network", "wireless", "dhcp", "firewall" ]
+			"uci": [
+				"luci",
+				"quickactions",
+				"hotplug",
+				"guestwifi",
+				"network",
+				"wireless",
+				"dhcp",
+				"firewall",
+				"taskplan"
+			]
 		},
 		"write": {
 			"ubus": {
-				"file": [ "exec", "read", "write" ],
-				"uci": [ "*" ]
+				"file": [
+					"exec",
+					"read",
+					"write"
+				],
+				"uci": [
+					"*"
+				],
+				"luci.quickactions-taskplan": [
+					"*"
+				]
 			},
 			"file": {
-				"/etc/crontabs/root": [ "write" ],
-				"/etc/config/hotplug": [ "write" ]
+				"/etc/crontabs/root": [
+					"write"
+				],
+				"/etc/config/hotplug": [
+					"write"
+				],
+				"/etc/quickactions-taskplan/taskplan.log": [
+					"write"
+				],
+				"/etc/quickactions-taskplan/taskplancustomscript": [
+					"write"
+				],
+				"/etc/quickactions-taskplan/taskplancustomscript2": [
+					"write"
+				],
+				"/etc/config/taskplan": [
+					"write"
+				]
 			},
-			"uci": [ "luci", "quickactions", "hotplug", "guestwifi", "network", "wireless", "dhcp", "firewall" ]
+			"uci": [
+				"luci",
+				"quickactions",
+				"hotplug",
+				"guestwifi",
+				"network",
+				"wireless",
+				"dhcp",
+				"firewall",
+				"taskplan"
+			],
+			"execute": {
+				"/etc/init.d/quickactions-taskplan": [
+					"start",
+					"stop",
+					"restart",
+					"reload"
+				]
+			}
 		}
 	}
 }
