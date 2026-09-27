@@ -110,7 +110,7 @@ boot()
     /etc/init.d/cron reload
     if [ -f $TT ] && [ -s $TT ]; then
         echo "$(date +'%Y-%m-%d %H:%M:%S'): Executing taskplanrun at boot" >> $LOG
-        bash $TT >> $LOG 2>&1 &
+        if command -v bash >/dev/null 2>&1; then bash $TT >> $LOG 2>&1 & else sh $TT >> $LOG 2>&1 & fi
     fi
 }
 

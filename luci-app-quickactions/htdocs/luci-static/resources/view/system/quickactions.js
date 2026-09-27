@@ -1128,9 +1128,129 @@ return view.extend({
         });
     },
 
+    refreshPendingCount: function() {
+        var self = this;
+        return uci.changes().then(function(changes) {
+            var n = 0;
+            for (var k in changes) { n += Object.keys(changes[k]).length; }
+            var bar = document.getElementById('qa-pending-bar');
+            var cnt = document.getElementById('qa-pending-count');
+            if (!bar) return;
+            if (n === 0) {
+                bar.style.display = 'none';
+            } else {
+                bar.style.display = 'flex';
+                if (cnt) cnt.textContent = n + ' pending change' + (n === 1 ? '' : 's') + ' in memory (not committed)';
+            }
+        }).catch(function() {});
+    },
+
+    pendingApply: function() {
+        var self = this;
+        return uci.changes().then(function(changes) {
+            var lines = [];
+            for (var conf in changes) {
+                for (var sid in changes[conf]) {
+                    for (var opt in changes[conf][sid]) {
+                        var v = changes[conf][sid][opt];
+                        if (Array.isArray(v)) v = v.join(', ');
+                        lines.push(conf + '.' + sid + '.' + opt + ' = ' + v);
+                    }
+                }
+            }
+            if (lines.length === 0) {
+                ui.addNotification('Nothing to apply', 'No pending changes.', 'info');
+                return;
+            }
+            var preview = lines.slice(0, 20).join('\n') + (lines.length > 20 ? '\n... and ' + (lines.length - 20) + ' more' : '');
+            if (!confirm('Apply ALL pending changes system-wide?\n\n' + preview + '\n\nThis commits and applies everything, not just this page.')) return;
+
+            ui.addNotification('Applying', 'Committing ' + lines.length + ' change(s)...', 'info');
+            return ui.changes.apply(true).then(function() {
+                ui.addNotification('Applied', 'All changes committed and applied.', 'info');
+                self.refreshPendingCount();
+            }).catch(function(err) {
+                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+            });
+        });
+    },
+
+    fetchThemeList: function() { return Promise.resolve([]); },
+
+    refreshPendingCount: function() {
+        var self = this;
+        return uci.changes().then(function(changes) {
+            var n = 0;
+            for (var k in changes) { n += Object.keys(changes[k]).length; }
+            var bar = document.getElementById('qa-pending-bar');
+            var cnt = document.getElementById('qa-pending-count');
+            if (!bar) return;
+            if (n === 0) {
+                bar.style.display = 'none';
+            } else {
+                bar.style.display = 'flex';
+                if (cnt) cnt.textContent = n + ' pending change' + (n === 1 ? '' : 's') + ' in memory (not committed)';
+            }
+        }).catch(function() {});
+    },
+
+    pendingApply: function() {
+        var self = this;
+        return uci.changes().then(function(changes) {
+            var lines = [];
+            for (var conf in changes) {
+                for (var sid in changes[conf]) {
+                    for (var opt in changes[conf][sid]) {
+                        var v = changes[conf][sid][opt];
+                        if (Array.isArray(v)) v = v.join(', ');
+                        lines.push(conf + '.' + sid + '.' + opt + ' = ' + v);
+                    }
+                }
+            }
+            if (lines.length === 0) {
+                ui.addNotification('Nothing to apply', 'No pending changes.', 'info');
+                return;
+            }
+            var preview = lines.slice(0, 20).join('\n') + (lines.length > 20 ? '\n... and ' + (lines.length - 20) + ' more' : '');
+            if (!confirm('Apply ALL pending changes system-wide?\n\n' + preview + '\n\nThis commits and applies everything, not just this page.')) return;
+
+            ui.addNotification('Applying', 'Committing ' + lines.length + ' change(s)...', 'info');
+            return ui.changes.apply(true).then(function() {
+                ui.addNotification('Applied', 'All changes committed and applied.', 'info');
+                self.refreshPendingCount();
+            }).catch(function(err) {
+                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+            });
+        });
+    },
+
     fetchThemeList: function() {
-        return this.callSystemCommand('/bin/sh', ['-c', 'opkg list-installed 2>/dev/null | grep "^luci-theme-" | sed "s/ .*//"']).then(function(r) {
-            return (r.stdout || '').split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; }).map(function(p) { return p.replace(/^luci-theme-/, ''); });
+        var self = this;
+        // Multi-source theme detection (four independent methods)
+        var sh = 'ls -1 /www/luci-static/ 2>/dev/null; ' +
+                 'echo "---"; ' +
+                 'ls -1 /usr/lib/opkg/info/ 2>/dev/null | grep "^luci-theme-"; ' +
+                 'echo "---"; ' +
+                 'opkg list-installed 2>/dev/null | awk "/^luci-theme-/ {print \$1}"; ' +
+                 'apk list -I 2>/dev/null | grep -o "^luci-theme-[^ ]*"';
+
+        return this.callSystemCommand('/bin/sh', ['-c', sh]).then(function(r) {
+            var seen = {}, themes = [];
+            (r.stdout || '').split('\n').forEach(function(line) {
+                line = line.trim();
+                if (!line || line === '---') return;
+                var name = line
+                    .replace(/^luci-theme-/, '')
+                    .replace(/\.(list|control)$/, '')
+                    .trim();
+                if (['resources', 'fonts', 'index.css', 'index.css.gz', 'menu', 'loading.svg'].indexOf(name) !== -1) return;
+                if (/^[a-zA-Z0-9_\-]+$/.test(name) === false) return;
+                if (name.length < 2 || name.length > 32) return;
+                if (seen[name]) return;
+                seen[name] = 1;
+                themes.push(name);
+            });
+            return themes;
         }).catch(function() { return []; });
     },
 
@@ -1268,7 +1388,30 @@ return view.extend({
         var self = this;
         var currentLang = (uci.get('luci', 'main', 'lang') || 'en');
         var themeBar = E('div', { 'style': 'background:rgba(0,0,0,0.04);padding:12px 14px;border-radius:8px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, [E('strong', { 'style': 'min-width:130px;' }, 'Theme Switcher: ')]);
-        if (this.installedThemes.length === 0) themeBar.appendChild(E('span', { 'style': 'color:#777;font-style:italic;' }, 'No themes detected'));
+        if (this.installedThemes.length === 0) {
+            themeBar.appendChild(E('span', { 'style': 'color:#777;font-style:italic;' }, 'No themes detected'));
+            themeBar.appendChild(E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.8em;margin-left:6px;', 'click': function() {
+                var cmd = [
+                    'echo "=== /www/luci-static/ ==="',
+                    'ls -1 /www/luci-static/ 2>/dev/null',
+                    'echo ""',
+                    'echo "=== /usr/lib/opkg/info (luci-theme) ==="',
+                    'ls -1 /usr/lib/opkg/info/ 2>/dev/null | grep "^luci-theme-"',
+                    'echo ""',
+                    'echo "=== opkg list-installed (luci-theme) ==="',
+                    'opkg list-installed 2>/dev/null | grep "^luci-theme-"',
+                    'echo ""',
+                    'echo "=== apk list -I (luci-theme) ==="',
+                    'apk list -I 2>/dev/null | grep -o "^luci-theme-[^ ]*"'
+                ].join('\n');
+                self.callSystemCommand('/bin/sh', ['-c', cmd]).then(function(r) {
+                    var out = (r.stdout || '') + (r.stderr ? '\n[stderr]\n' + r.stderr : '');
+                    ui.addNotification('Theme Diagnostic',
+                        E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#0f0;padding:12px;border-radius:4px;font-family:monospace;font-size:0.85em;max-height:400px;overflow:auto;' }, out),
+                        'info');
+                });
+            } }, 'Diagnose'));
+        }
         else this.installedThemes.forEach(function(t) {
             themeBar.appendChild(E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'padding:4px 12px;text-transform:capitalize;font-weight:bold;', 'click': function() { self.handleThemeSwitch(t); } }, t));
         });
@@ -1284,11 +1427,17 @@ return view.extend({
             var is3d = this.designStyle === '3d';
             cmds.forEach(function(c) {
                 var name = c.name || c.command;
-                var style = 'padding:14px 12px;font-size:0.9em;font-weight:bold;cursor:pointer;text-align:center;color:#fff;box-shadow:0 4px 6px rgba(0,0,0,0.1);word-wrap:break-word;white-space:normal;line-height:1.3;';
+                var style = 'padding:14px 12px;font-size:0.9em;font-weight:bold;cursor:pointer;text-align:center;' +
+                            'color:#ffffff !important;' +
+                            'background:#747d8c !important;' +
+                            'background-color:#747d8c !important;' +
+                            'box-shadow:0 4px 6px rgba(0,0,0,0.1);' +
+                            'word-wrap:break-word;white-space:normal;line-height:1.3;' +
+                            'text-shadow:0 1px 1px rgba(0,0,0,0.25);';
                 style += is3d ? 'border-radius:8px;border:none;' : 'border-radius:4px;border:1px solid rgba(0,0,0,0.1);';
                 var info = self.getServiceInfo(name);
                 var label = (info && info.icon) ? info.icon + ' ' + name : name;
-                var btn = E('button', { 'class': 'btn cbi-button custom-action-btn', 'style': style + 'background-color:#747d8c;' + (is3d ? 'border-bottom:5px solid #57606f;' : ''), 'data-name': name, 'data-executing': 'false' }, label);
+                var btn = E('button', { 'class': 'btn cbi-button custom-action-btn', 'style': style + (is3d ? 'border-bottom:5px solid #57606f !important;' : ''), 'data-name': name, 'data-executing': 'false' }, label);
                 var r = self.getServiceStatus(name, initList);
                 if (r !== null) self.applyLiveColor(btn, r);
                 btn.addEventListener('click', function() { self.handleButtonClick(c.command, name, btn); });
@@ -1676,7 +1825,21 @@ return view.extend({
         o.rmempty = false;
 
         return m.render().then(function(formNode) {
-            return E('div', {}, [regenBar, formNode]);
+            var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
+                if (!confirm('Save hotplug config and regenerate handlers?')) return;
+                ui.addNotification('Saving', 'Applying hotplug config...', 'info');
+                m.save().then(function() {
+                    return ui.changes.apply(true);
+                }).then(function() {
+                    return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-hotplug restart']).catch(function(){ return {}; });
+                }).then(function() {
+                    ui.addNotification('Saved', 'Hotplug config saved, applied, and handlers regenerated.', 'info');
+                    self.switchTab('hotplug');
+                }).catch(function(err) {
+                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                });
+            } }, 'Save & Apply Hotplug');
+            return E('div', {}, [regenBar, formNode, saveBtn]);
         });
     },
 
@@ -2029,10 +2192,74 @@ return view.extend({
             parts.push(E('div', { 'class': 'alert-message warning' }, 'Random ttyd port not supported. Set a fixed port below.'));
         } else {
             var url = override || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port);
-            parts.push(E('iframe', {
+            // Mixed content check: if SSL is on but page is HTTP, iframe will be blocked
+            var isPageHTTPS = window.location.protocol === 'https:';
+            var isIframeHTTPS = (ssl === '1');
+            var mixedContentBlocked = (!isPageHTTPS && isIframeHTTPS);
+
+            if (mixedContentBlocked) {
+                parts.push(E('div', { 'class': 'alert-message warning', 'style': 'margin-bottom:12px;' }, [
+                    E('strong', {}, '⚠️ Mixed content block: '),
+                    E('span', {}, 'ttyd is configured with SSL but you access LuCI over HTTP. The browser will refuse to load the terminal. '),
+                    E('span', {}, 'Either access LuCI over HTTPS, or disable SSL in the ttyd config below.')
+                ]));
+            }
+
+            var iframeEl = E('iframe', {
+                'id': 'qa-ttyd-iframe',
                 'src': url,
                 'style': 'width:100%;min-height:60vh;border:1px solid rgba(0,0,0,0.15);border-radius:6px;resize:vertical;background:#000;'
-            }));
+            });
+            parts.push(iframeEl);
+
+            // Add reconnect buttons
+            parts.push(E('div', { 'style': 'margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;' }, [
+                E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
+                    if (!confirm('Force reconnect?\n\nThis kills all ttyd sessions and restarts the service. Any open terminal in another tab will be disconnected.')) return;
+                    ui.addNotification('Reconnect', 'Killing stale ttyd sessions...', 'info');
+                    self.callSystemCommand('/bin/sh', ['-c', 'killall ttyd 2>/dev/null; sleep 1; /etc/init.d/ttyd restart 2>/dev/null; sleep 1']).then(function() {
+                        var f = document.getElementById('qa-ttyd-iframe');
+                        if (f) {
+                            var baseSrc = f.src.split('?')[0];
+                            f.src = 'about:blank';
+                            setTimeout(function(){ f.src = baseSrc + '?_t=' + Date.now(); }, 300);
+                        }
+                        ui.addNotification('Reconnected', 'Terminal service restarted. If blank, click Reconnect again.', 'info');
+                    }).catch(function(err) {
+                        ui.addNotification('Error', 'Restart failed: ' + ((err && err.message) ? err.message : String(err)), 'danger');
+                    });
+                } }, _('↻ Force Reconnect')),
+                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
+                    // Send Ctrl+L to help if terminal is unresponsive
+                    var f = document.getElementById('qa-ttyd-iframe');
+                    try { f.contentWindow.focus(); } catch(e) {}
+                } }, _('Focus Terminal'))
+            ]));
+
+            // Auto-check if terminal went blank (WebSocket timeout)
+            var lastCheck = Date.now();
+            setTimeout(function() {
+                setInterval(function() {
+                    var f = document.getElementById('qa-ttyd-iframe');
+                    if (!f || !f.contentWindow) return;
+                    try {
+                        var doc = f.contentDocument;
+                        if (!doc) return;
+                        // If the terminal has a reconnect button visible and hasn't been touched in 30s, warn
+                        var bodyText = doc.body ? doc.body.textContent : '';
+                        var looksDead = bodyText.indexOf('to Reconnect') !== -1
+                                     || bodyText.indexOf('Connection closed') !== -1
+                                     || bodyText.indexOf('Disconnected') !== -1
+                                     || (bodyText.length < 20 && doc.querySelector('canvas') === null);
+                        if (looksDead && (Date.now() - lastCheck) > 20000) {
+                            lastCheck = Date.now();
+                            ui.addNotification('Terminal idle',
+                                E('p', {}, 'The terminal session expired. Click "Reconnect Terminal" above to resume.'),
+                                'info');
+                        }
+                    } catch(e) { /* cross-origin */ }
+                }, 15000);
+            }, 5000);
         }
 
         // --- Full config form via LuCI form.Map ---
@@ -2127,6 +2354,7 @@ return view.extend({
     },
 
     renderTaskPlanScheduled: function() {
+        var self = this;
         return uci.load('taskplan').then(function() {
             var m = new form.Map('taskplan', _('Scheduled Tasks'),
                 _('Scheduled and startup tasks. Presets include reboot, shutdown, network restart, memory cleanup, custom scripts.'));
@@ -2175,11 +2403,28 @@ return view.extend({
             m.on_after_apply = function() {
                 return Promise.resolve();
             };
-            return m.render();
+            return m.render().then(function(formNode) {
+                var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
+                    if (!confirm('Save scheduled tasks and apply?')) return;
+                    ui.addNotification('Saving', 'Applying scheduled tasks...', 'info');
+                    m.save().then(function() {
+                        return ui.changes.apply(true);
+                    }).then(function() {
+                        return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-taskplan start']).catch(function(){ return {}; });
+                    }).then(function() {
+                        ui.addNotification('Saved', 'Scheduled tasks applied.', 'info');
+                        self.switchTab('taskplan');
+                    }).catch(function(err) {
+                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    });
+                } }, 'Save & Apply Scheduled Tasks');
+                return E('div', {}, [formNode, saveBtn]);
+            });
         });
     },
 
     renderTaskPlanStartup: function() {
+        var self = this;
         return uci.load('taskplan').then(function() {
             var m = new form.Map('taskplan', _('Startup Tasks'),
                 _('Tasks to run after boot, with a delay in seconds.'));
@@ -2214,7 +2459,23 @@ return view.extend({
 
             m.apply_on_parse = true;
             m.on_after_apply = function() { return Promise.resolve(); };
-            return m.render();
+            return m.render().then(function(formNode) {
+                var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
+                    if (!confirm('Save startup tasks and apply?')) return;
+                    ui.addNotification('Saving', 'Applying startup tasks...', 'info');
+                    m.save().then(function() {
+                        return ui.changes.apply(true);
+                    }).then(function() {
+                        return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-taskplan start']).catch(function(){ return {}; });
+                    }).then(function() {
+                        ui.addNotification('Saved', 'Startup tasks applied.', 'info');
+                        self.switchTab('taskplan');
+                    }).catch(function(err) {
+                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    });
+                } }, 'Save & Apply Startup Tasks');
+                return E('div', {}, [formNode, saveBtn]);
+            });
         });
     },
 
@@ -2441,7 +2702,7 @@ return view.extend({
                 E('div', { 'style': 'font-size:2.5em;margin-bottom:8px;' }, mode === 'pppoe' ? '🛰️' : (mode === 'dhcp' ? '🔌' : '🔀')),
                 E('div', { 'style': 'font-weight:bold;font-size:1.1em;color:' + color + ';margin-bottom:6px;' }, label),
                 E('div', { 'style': 'font-size:0.85em;color:#888;line-height:1.4;' }, desc),
-                active ? E('div', { 'style': 'margin-top:10px;font-size:0.8em;font-weight:bold;color:' + color + ';' }, '● CURRENT') : null
+                active ? E('div', { 'style': 'margin-top:10px;font-size:0.8em;font-weight:bold;color:' + color + ';' }, '● CURRENT') : ''
             ]);
             return c;
         }
@@ -3024,6 +3285,7 @@ return view.extend({
     },
 
     renderConfigForm: function() {
+        var self = this;
         var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
         var s = m.section(form.NamedSection, 'global', 'settings', 'Global Settings');
         s.anonymous = true;
@@ -3055,6 +3317,7 @@ return view.extend({
         o = s4.option(form.Value, 'icon', 'Icon / Emoji'); o.placeholder = '🔗';
         o = s4.option(form.Value, 'path', 'LuCI Path'); o.placeholder = 'admin/network/firewall';
 
+        self.configMap = m;
         return m.render();
     },
 
@@ -3067,6 +3330,7 @@ return view.extend({
 
         if (embedParam === 'guestwifi') {
             var gw = new GuestWifiViewClass();
+            self.embedGuestWifi = gw;
             return Promise.resolve(gw.load()).then(function() {
                 return gw.render();
             }).catch(function(err) {
@@ -3104,6 +3368,7 @@ return view.extend({
                 else { b.style.borderBottomColor = 'transparent'; b.style.color = '#666'; b.style.fontWeight = '500'; }
             });
             tabContent.innerHTML = '';
+            self.hideLuCIPageActions();
             if (id === 'dashboard') tabContent.appendChild(self.renderDashboard(cmds, initList));
             else if (id === 'essential') tabContent.appendChild(self.renderEssential());
             else if (id === 'tools') tabContent.appendChild(self.renderTools());
@@ -3131,28 +3396,90 @@ return view.extend({
                 ifr.id = 'qa-guestwifi-iframe';
                 ifr.style.cssText = 'width:100%;min-height:80vh;border:1px solid rgba(0,0,0,0.1);border-radius:6px;background:transparent;';
 
-                function injectGuestWifiCSS() {
+                function stripEmbedChrome() {
                     var f = document.getElementById('qa-guestwifi-iframe');
                     if (!f) return;
                     try {
                         var doc = f.contentDocument;
-                        if (!doc || !doc.head) return;
-                        if (doc.getElementById('qa-embed-css')) return;
-                        var s = doc.createElement('style');
-                        s.id = 'qa-embed-css';
-                        s.textContent = 'body > header, header.header, #mainmenu, .main-menu, nav.main-menu { display: none !important; } ' + 'body { padding-top: 0 !important; margin-top: 0 !important; } ' + '.main { top: 0 !important; margin-top: 0 !important; padding-top: 8px !important; } ' + '.main-left { display: none !important; } ' + '.main-right { margin-left: 0 !important; } ' + '#maincontent { padding-top: 0 !important; }';
-                        doc.head.appendChild(s);
-                    } catch(e) { /* ignore */ }
+                        if (!doc || !doc.body) return;
+
+                        // 1. Inject generic "hide chrome" CSS
+                        if (!doc.getElementById('qa-embed-css')) {
+                            var s = doc.createElement('style');
+                            s.id = 'qa-embed-css';
+                            s.textContent = [
+                                'html, body { padding: 0 !important; margin: 0 !important; }',
+                                'body > header, body > nav, body > aside, body > footer { display: none !important; }',
+                                'header, nav, aside, #header, #mainmenu, #menubar, #sidebar, .header, .main-menu, .sidebar, .navigation, .navbar { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }',
+                                '.main-left, .main-left * { display: none !important; }',
+                                '.main { padding-top: 0 !important; margin-top: 0 !important; top: 0 !important; }',
+                                '.main-right { margin-left: 0 !important; padding: 0 !important; }',
+                                '#maincontent, #view, .cbi-map { padding-top: 0 !important; margin-top: 0 !important; }',
+                                'body { overflow-x: hidden; }',
+                                'a[href*="logout"], .logout, .main-right .logout { display: none !important; }'
+                            ].join('\n');
+                            doc.head.appendChild(s);
+                        }
+
+                        // 2. DOM-walk: hide every sibling on the path from target up to body
+                        var target = doc.querySelector('#maincontent')
+                            || doc.querySelector('#view')
+                            || doc.querySelector('.cbi-map')
+                            || doc.querySelector('.main-right')
+                            || doc.querySelector('.main');
+                        if (!target) return;
+
+                        var el = target;
+                        while (el && el.parentNode && el.parentNode !== doc.documentElement) {
+                            var parent = el.parentNode;
+                            var kids = parent.children;
+                            for (var i = 0; i < kids.length; i++) {
+                                var k = kids[i];
+                                if (k === el) continue;
+                                if (k.tagName === 'SCRIPT' || k.tagName === 'STYLE' || k.tagName === 'LINK') continue;
+                                var kid = (k.id || '') + ' ' + (k.className || '');
+                                if (/modal|overlay|notification|alert|dialog|spinning|popup|tooltip/i.test(kid)) continue;
+                                k.style.display = 'none';
+                            }
+                            if (parent === doc.body) break;
+                            el = parent;
+                        }
+
+                        // 3. Explicitly show the target chain
+                        var showChain = target;
+                        while (showChain && showChain !== doc.documentElement) {
+                            showChain.style.display = '';
+                            showChain.style.visibility = '';
+                            showChain = showChain.parentNode;
+                        }
+                    } catch(e) { /* cross-origin, ignore */ }
                 }
 
-                ifr.addEventListener('load', injectGuestWifiCSS);
+                ifr.addEventListener('load', function() {
+                    stripEmbedChrome();
+                    // Guest WiFi form is rendered inside the iframe with its own
+                    // LuCI page-actions. Make sure they are visible inside the iframe.
+                    try {
+                        var doc = ifr.contentDocument;
+                        if (doc) {
+                            var pa = doc.querySelectorAll('.cbi-page-actions');
+                            for (var i = 0; i < pa.length; i++) {
+                                pa[i].style.display = '';
+                                pa[i].style.visibility = '';
+                                pa[i].style.marginTop = '14px';
+                                pa[i].style.paddingTop = '12px';
+                                pa[i].style.borderTop = '1px solid rgba(0,0,0,0.08)';
+                            }
+                        }
+                    } catch(e) {}
+                });
                 ifr.src = iframeUrl;
 
                 // Belt-and-suspenders: poll a few times in case load fires early
-                setTimeout(injectGuestWifiCSS, 150);
-                setTimeout(injectGuestWifiCSS, 500);
-                setTimeout(injectGuestWifiCSS, 1200);
-                setTimeout(injectGuestWifiCSS, 2500);
+                setTimeout(stripEmbedChrome, 150);
+                setTimeout(stripEmbedChrome, 500);
+                setTimeout(stripEmbedChrome, 1200);
+                setTimeout(stripEmbedChrome, 2500);
                 tabContent.innerHTML = '';
                 tabContent.appendChild(infoBar);
                 tabContent.appendChild(ifr);
@@ -3185,8 +3512,37 @@ return view.extend({
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
             else if (id === 'config') {
                 tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading configuration...'));
-                self.renderConfigForm().then(function(node) { tabContent.innerHTML = ''; tabContent.appendChild(node); })
-                    .catch(function(err) { tabContent.innerHTML = ''; tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Form error: ' + (err && err.message ? err.message : String(err)))); });
+                self.renderConfigForm().then(function(node) {
+                    tabContent.innerHTML = '';
+                    tabContent.appendChild(node);
+
+                    // Add our own Save / Save & Apply / Reset buttons
+                    var btnRow = E('div', { 'class': 'qa-page-actions', 'style': 'margin-top:20px;padding-top:15px;border-top:1px solid rgba(0,0,0,0.08);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;' }, [
+                        E('button', { 'class': 'btn cbi-button cbi-button-reset', 'click': function() {
+                            if (!confirm('Discard unsaved changes to this tab?')) return;
+                            self.switchTab('config');
+                        } }, _('Reset')),
+                        E('button', { 'class': 'btn cbi-button cbi-button-save', 'click': function() {
+                            var map = self.configMap;
+                            if (!map) { ui.addNotification('Error', 'Form not ready', 'danger'); return; }
+                            map.save().then(function() {
+                                ui.addNotification('Saved', 'Configuration saved to memory. Use the yellow bar at the top to apply.', 'info');
+                                self.refreshPendingCount();
+                            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                        } }, _('Save')),
+                        E('button', { 'class': 'btn cbi-button cbi-button-apply', 'click': function() {
+                            var map = self.configMap;
+                            if (!map) { ui.addNotification('Error', 'Form not ready', 'danger'); return; }
+                            map.save().then(function() {
+                                return self.pendingApply();
+                            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                        } }, _('Save & Apply'))
+                    ]);
+                    tabContent.appendChild(btnRow);
+                }).catch(function(err) {
+                    tabContent.innerHTML = '';
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Form error: ' + (err && err.message ? err.message : String(err))));
+                });
             }
         }
         tabs.forEach(function(t) {
@@ -3194,11 +3550,32 @@ return view.extend({
             tabButtons[t.id] = b;
             tabBar.appendChild(b);
         });
+        // Pending changes indicator
+        var pendingBar = E('div', { 'id': 'qa-pending-bar', 'style': 'display:none;background:rgba(255,193,7,0.15);border:1px solid rgba(255,193,7,0.5);border-radius:6px;padding:10px 14px;margin-bottom:14px;display:none;align-items:center;gap:12px;flex-wrap:wrap;' }, [
+            E('span', { 'id': 'qa-pending-count', 'style': 'font-weight:bold;' }, ''),
+            E('span', { 'style': 'flex:1;' }),
+            E('button', { 'class': 'btn cbi-button cbi-button-reset', 'click': function() {
+                if (!confirm('Discard ALL pending UCI changes?')) return;
+                ui.changes.revert().then(function() {
+                    ui.addNotification('Reverted', 'All pending changes discarded.', 'info');
+                    self.refreshPendingCount();
+                }).catch(function(err) {
+                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                });
+            } }, _('Discard All')),
+            E('button', { 'class': 'btn cbi-button cbi-button-apply important', 'click': function() {
+                self.pendingApply();
+            } }, _('Save & Apply All'))
+        ]);
+
         var container = E('div', { 'class': 'cbi-map' }, [
             E('h2', { 'style': 'margin-bottom:4px;' }, 'Quick Actions'),
             E('p', { 'style': 'margin-top:0;margin-bottom:20px;color:#888;font-style:italic;font-size:0.95em;' }, 'Live Status, Commands & Controls'),
+            pendingBar,
             tabBar, tabContent
         ]);
+
+        self.pendingBar = pendingBar;
         this.switchTab = showTab;
         if (this.timerId) clearInterval(this.timerId);
         this.timerId = setInterval(function() { self.updateAllButtonsRealtime(); }, this.pollInterval * 1000);
@@ -3209,15 +3586,59 @@ return view.extend({
             if (h && known.indexOf(h) !== -1) initialTab = h;
         } catch(e) {}
         showTab(initialTab);
+        // Poll pending changes every 3s
+        self.refreshPendingCount();
+        setInterval(function() { self.refreshPendingCount(); }, 3000);
         window.addEventListener('hashchange', function() {
             var nh = (window.location.hash || '').replace('#', '');
             var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','config'];
             if (nh && known.indexOf(nh) !== -1 && nh !== self.activeTab) showTab(nh);
         });
+
+        // Hide LuCI's auto-generated Save/Apply/Reset footer.
+        // We manage our own per-tab save buttons, so LuCI's would either duplicate
+        // them (Hotplug/TaskPlan/Config) or appear uselessly (Crontab/Dependencies/Command).
+        self.hideLuCIPageActions();
         return container;
     },
 
-    handleSaveApply: null,
-    handleSave: null,
-    handleReset: null
+    hideLuCIPageActions: function() {
+        // Runs a few times to catch delayed DOM injection by LuCI dispatcher
+        function doHide() {
+            // LuCI typically appends page-actions to the view container's parent
+            var candidates = document.querySelectorAll(
+                '#view > .cbi-page-actions, ' +
+                '#view .cbi-page-actions:not(.qa-page-actions), ' +
+                '#maincontent > .cbi-page-actions, ' +
+                '.main > .cbi-page-actions, ' +
+                'body > .cbi-page-actions'
+            );
+            for (var i = 0; i < candidates.length; i++) {
+                candidates[i].style.display = 'none';
+            }
+        }
+        // Fire immediately, after microtask, and after network
+        doHide();
+        setTimeout(doHide, 50);
+        setTimeout(doHide, 250);
+        setTimeout(doHide, 1000);
+    },
+
+    handleSaveApply: function(ev, mode) {
+        if (this.embedGuestWifi) {
+            return this.embedGuestWifi.handleSave(ev).then(function() {
+                return ui.changes.apply(mode == '0');
+            });
+        }
+        return Promise.resolve();
+    },
+    handleSave: function(ev) {
+        if (this.embedGuestWifi) {
+            return this.embedGuestWifi.handleSave(ev);
+        }
+        return Promise.resolve();
+    },
+    handleReset: function(ev) {
+        return Promise.resolve();
+    }
 });
