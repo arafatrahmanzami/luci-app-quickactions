@@ -2148,39 +2148,81 @@ return view.extend({
         var port = uci.get('ttyd', 'ttyd', 'port') || '7681';
         var ssl = uci.get('ttyd', 'ttyd', 'ssl') || '0';
         var override = uci.get('ttyd', 'ttyd', 'url_override');
-        var currentCmd = uci.get('ttyd', 'ttyd', 'command') || '/bin/login';
+        // ttyd config may use an anonymous section (@ttyd[0])
+        var currentCmd = uci.get_first('ttyd', 'ttyd', 'command')
+                      || uci.get('ttyd', 'ttyd', 'command')
+                      || '/bin/login';
         var autoLogin = (currentCmd === '/bin/sh' || currentCmd === '/bin/ash');
 
-        // --- Auto-login toggle ---
-        var toggleBtn = E('button', {
-            'class': 'btn cbi-button ' + (autoLogin ? 'cbi-button-reset' : 'cbi-button-action'),
-            'style': 'padding:4px 12px;font-size:0.85em;',
+        // --- Auto-login: status badge + explicit Enable / Disable buttons ---
+        function setTtydCommand(newCmd, label) {
+            uci.load('ttyd').then(function() {
+                var secs = uci.sections('ttyd', 'ttyd');
+                var targetSec = (secs && secs.length > 0) ? secs[0]['.name'] : null;
+                if (!targetSec) {
+                    uci.set('ttyd', 'ttyd', 'ttyd');
+                    targetSec = 'ttyd';
+                }
+                uci.set('ttyd', targetSec, 'command', newCmd);
+                return uci.save();
+            }).then(function() {
+                return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/ttyd restart']);
+            }).then(function() {
+                ui.addNotification('Success', label + ' applied. ttyd restarted.', 'info');
+                self.switchTab('ttyd');
+            }).catch(function(err) {
+                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+            });
+        }
+
+        var loginStatusBadge = autoLogin
+            ? E('span', { 'style': 'padding:4px 10px;border-radius:4px;background:rgba(220,53,69,0.18);color:#dc3545;font-weight:bold;font-size:0.85em;' }, '🔴 Auto-Login: ON')
+            : E('span', { 'style': 'padding:4px 10px;border-radius:4px;background:rgba(40,167,69,0.15);color:#28a745;font-weight:bold;font-size:0.85em;' }, '🔒 Login Required');
+
+        // Active button gets a solid background + thick border.
+        // Inactive button stays clickable but dimmed.
+        var ENABLE_ACTIVE_STYLE   = 'padding:5px 14px;font-size:0.85em;font-weight:bold;background-color:#28a745 !important;background:#28a745 !important;color:#fff !important;border:2px solid #1e7e34 !important;';
+        var ENABLE_INACTIVE_STYLE = 'padding:5px 14px;font-size:0.85em;opacity:0.6;border:2px solid transparent;';
+        var DISABLE_ACTIVE_STYLE  = 'padding:5px 14px;font-size:0.85em;font-weight:bold;background-color:#dc3545 !important;background:#dc3545 !important;color:#fff !important;border:2px solid #a71d2a !important;';
+        var DISABLE_INACTIVE_STYLE= 'padding:5px 14px;font-size:0.85em;opacity:0.6;border:2px solid transparent;';
+
+        var enableLoginBtn = E('button', {
+            'class': 'btn cbi-button',
+            'title': autoLogin ? 'Currently active' : 'Click to enable root auto-login',
+            'style': autoLogin ? ENABLE_ACTIVE_STYLE : ENABLE_INACTIVE_STYLE,
             'click': function() {
-                var newCmd = autoLogin ? '/bin/login' : '/bin/sh';
-                var msg = autoLogin
-                    ? 'Switch back to secure login prompt (/bin/login)?'
-                    : '⚠️ WARNING: Enable root auto-login?\n\nThis changes ttyd command to /bin/sh. Anyone who can reach port ' + port + ' gets a root shell without credentials.\n\nEnsure ttyd is bound to loopback or LAN-only and your network is trusted.\n\nProceed?';
+                if (autoLogin) {
+                    ui.addNotification('Already Enabled', 'Auto-login is already active. Terminal runs ' + currentCmd + '.', 'info');
+                    return;
+                }
+                var msg = '⚠️ WARNING: Enable root auto-login?\n\nThis changes ttyd command to /bin/sh. Anyone who can reach port ' + port + ' gets a root shell without credentials.\n\nEnsure ttyd is bound to loopback or LAN-only and your network is trusted.\n\nProceed?';
                 if (!confirm(msg)) return;
-                uci.load('ttyd').then(function() {
-                    uci.set('ttyd', 'ttyd', 'command', newCmd);
-                    return uci.save();
-                }).then(function() {
-                    return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/ttyd restart']);
-                }).then(function() {
-                    ui.addNotification('Success', 'ttyd restarted with ' + newCmd, 'info');
-                    self.switchTab('ttyd');
-                }).catch(function(err) {
-                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
-                });
+                setTtydCommand('/bin/sh', 'Auto-login enabled');
             }
-        }, autoLogin ? '🔴 Auto-Login: ON — click to disable' : 'Enable Auto-Login as Root');
+        }, 'Enable Auto-Login');
+
+        var disableLoginBtn = E('button', {
+            'class': 'btn cbi-button',
+            'title': !autoLogin ? 'Currently active' : 'Click to disable root auto-login',
+            'style': !autoLogin ? DISABLE_ACTIVE_STYLE : DISABLE_INACTIVE_STYLE,
+            'click': function() {
+                if (!autoLogin) {
+                    ui.addNotification('Already Disabled', 'Terminal already requires login (' + currentCmd + ').', 'info');
+                    return;
+                }
+                if (!confirm('Disable root auto-login and return to /bin/login prompt?')) return;
+                setTtydCommand('/bin/login', 'Auto-login disabled');
+            }
+        }, 'Disable Auto-Login');
 
         var statusBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
-            E('div', { 'style': 'display:flex;align-items:center;gap:12px;flex-wrap:wrap;' }, [
+            E('div', { 'style': 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' }, [
                 E('strong', {}, 'Terminal (ttyd):'),
                 E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, currentCmd),
+                loginStatusBadge,
                 E('span', { 'style': 'flex:1;' }),
-                toggleBtn
+                enableLoginBtn,
+                disableLoginBtn
             ])
         ]);
 
@@ -2229,10 +2271,42 @@ return view.extend({
                         ui.addNotification('Error', 'Restart failed: ' + ((err && err.message) ? err.message : String(err)), 'danger');
                     });
                 } }, _('↻ Force Reconnect')),
+                E('a', {
+                    'class': 'btn cbi-button cbi-button-neutral',
+                    'href': url,
+                    'target': '_blank',
+                    'rel': 'noopener noreferrer',
+                    'style': 'text-decoration:none;'
+                }, _('↗ Open in New Tab')),
                 E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
-                    // Send Ctrl+L to help if terminal is unresponsive
                     var f = document.getElementById('qa-ttyd-iframe');
-                    try { f.contentWindow.focus(); } catch(e) {}
+                    if (!f) { ui.addNotification('Focus', 'Terminal iframe not found.', 'warning'); return; }
+                    try {
+                        // 1. Focus the iframe element itself
+                        f.focus();
+                        if (f.contentWindow) f.contentWindow.focus();
+
+                        // 2. ttyd uses xterm.js — its hidden helper-textarea captures keys
+                        var doc = f.contentDocument;
+                        if (doc) {
+                            var ta = doc.querySelector('.xterm-helper-textarea');
+                            if (ta) { ta.focus(); }
+                            else {
+                                // Fallback: any input/textarea/canvas inside
+                                var el = doc.querySelector('textarea, input, .xterm canvas, canvas');
+                                if (el) {
+                                    el.focus();
+                                    // Simulate a click to activate xterm
+                                    try {
+                                        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    } catch(e) {}
+                                }
+                            }
+                        }
+                        ui.addNotification('Focused', 'Terminal focused. Start typing to interact.', 'info');
+                    } catch(e) {
+                        ui.addNotification('Focus failed', (e && e.message) ? e.message : String(e), 'warning');
+                    }
                 } }, _('Focus Terminal'))
             ]));
 
@@ -3487,7 +3561,9 @@ return view.extend({
             else if (id === 'ttyd') {
                 tabContent.innerHTML = '';
                 tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ttyd configuration...'));
-                Promise.resolve(uci.load('ttyd')).then(function() {
+                Promise.resolve(uci.unload('ttyd')).then(function() {
+                    return uci.load('ttyd');
+                }).then(function() {
                     return self.renderTtyd();
                 }).then(function(node) {
                     tabContent.innerHTML = '';
