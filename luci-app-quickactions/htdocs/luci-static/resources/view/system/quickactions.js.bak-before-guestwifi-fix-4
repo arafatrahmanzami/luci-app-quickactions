@@ -86,7 +86,7 @@ let DEFAULTS = {
 	isolate:       '1',
 	macaddr:       '',
 	ip:            '172.16.0.1',
-	netmask:       '255.255.255.0',
+	netmask:       '255.240.0.0',
 	dhcpStart:     '100',
 	dhcpLimit:     '150',
 	dhcpLease:     '12h',
@@ -147,45 +147,17 @@ function addGuestWifiStyles() {
 		ls.id = 'guest-wifi-layout-styles';
 		ls.type = 'text/css';
 		ls.textContent = '\
-			.modal.cbi-modal { width: min(95vw, 1200px) !important; max-width: 95vw !important; min-width: 0 !important; }\
-			.modal.cbi-modal .cbi-value { display: flex !important; flex-wrap: nowrap !important; align-items: flex-start !important; }\
-			.modal.cbi-modal .cbi-value-title { flex: 0 0 200px !important; }\
-			.modal.cbi-modal .cbi-value-field { flex: 1 1 auto !important; min-width: 0 !important; }\
+			.modal.cbi-modal { max-width: 95vw !important; }\
 			.cbi-value-field { min-width: 0 !important; }\
 			.cbi-value-field select,\
 			.cbi-value-field input,\
 			.cbi-value-field .cbi-dropdown { max-width: 100% !important; }\
 			.btn.qr-code { display: inline-flex; align-items: center; gap: .5em; }\
 			.btn.qr-code svg { display: block; height: 1.5em; width: auto; }\
-			html, body { background-color: var(--background-color-default, #141414) !important; background-image: none !important; }\
-			#view.spinning::before,\
-			#view.spinning::after,\
-			body > .spinning,\
-			body > .loading-overlay,\
-			body > .spinner { display: none !important; visibility: hidden !important; }\
-			.cbi-input-password { padding-right: 34px !important; }\
 		';
 		document.head.appendChild(ls);
 	}
 }
-
-// Un-cap .container inside the embed page. The embed view is a full
-// LuCI page loaded at ?embed=guestwifi, so it has its own theme
-// wrapper (.container) that caps width at ~940px. Un-cap here so the
-// guest wifi form and its modals use the entire iframe viewport.
-(function(){
-	if (document.getElementById('qa-embed-fullwidth')) return;
-	var s = document.createElement('style');
-	s.id = 'qa-embed-fullwidth';
-	s.type = 'text/css';
-	s.textContent = '.container,.main,.main-right,.cbi-map,.fs-content,.fs-main{' +
-		'max-width:none !important;width:100% !important;' +
-		'padding-left:0 !important;padding-right:0 !important;' +
-		'margin-left:0 !important;margin-right:0 !important;}' +
-		'html,body{height:auto !important;min-height:0 !important;}' +
-		'body>.container,body>#view,body>main{min-height:0 !important;}'
-	document.head.appendChild(s);
-})();
 
 function ssidBadge(section_id, text) {
 	let val = uci.get('guestwifi', section_id, 'enable');
@@ -623,10 +595,6 @@ return view.extend({
 		let get = function(name, def) { return uci.get('guestwifi', sid, name) || def; };
 
 		let enabled    = get('enable', '1') === '1';
-		// Persist enable explicitly — form.Flag.default is not written to
-		// UCI on its own, so without this the toggle renders off even when
-		// the app treats a missing enable key as enabled.
-		uci.set('guestwifi', sid, 'enable', enabled ? '1' : '0');
 		let ssid       = get('ssid', DEFAULTS.ssid);
 		let encryption = get('encryption', DEFAULTS.encryption);
 		let password   = get('password', DEFAULTS.password);
@@ -765,35 +733,6 @@ return view.extend({
 
 		addGuestWifiStyles();
 
-		// Modal sweep: LuCI pre-renders the modal once and toggles
-		// its display. No DOM insertion event fires on open, so we
-		// actively sweep for visible modals and force the width via
-		// inline !important. Runs on click, on interval, and once now.
-		if (!window._qaWidenModals) {
-			window._qaWidenModals = function() {
-				try {
-					var mods = document.querySelectorAll('.modal, .cbi-modal');
-					for (var i = 0; i < mods.length; i++) {
-						var m = mods[i];
-						var r = m.getBoundingClientRect();
-						if (r.width < 100 || r.height < 50) continue;
-						m.style.setProperty('width', 'min(95vw, 2200px)', 'important');
-						m.style.setProperty('max-width', 'calc(100vw - 32px)', 'important');
-						m.style.setProperty('min-width', '0', 'important');
-					}
-				} catch(e) {}
-			};
-			if (!window._qaModalSweepTimer) {
-				window._qaModalSweepTimer = setInterval(window._qaWidenModals, 400);
-			}
-			document.addEventListener('click', function() {
-				setTimeout(window._qaWidenModals, 30);
-				setTimeout(window._qaWidenModals, 150);
-				setTimeout(window._qaWidenModals, 400);
-			}, true);
-		}
-		setTimeout(window._qaWidenModals, 100);
-
 		let wifiDevices = uci.sections('wireless', 'wifi-device');
 		let radios = wifiDevices.map(function(d) { return d['.name']; });
 		if (!radios.length)
@@ -829,33 +768,6 @@ return view.extend({
 		o.rmempty = false;
 		o.default = '1';
 		o.editable = true;
-		// Read side: on a fresh section show ON; on an existing section
-		// show what UCI has.
-		o.cfgvalue = function(section_id) {
-			let v = uci.get('guestwifi', section_id, 'enable');
-			return (v == null || v === '') ? '1' : v;
-		};
-		// Formvalue side: LuCI 26.203 batch-saves every section when any
-		// one section's modal is saved. For sections whose widget is not
-		// in the DOM (their modal is closed), LuCI's base formvalue()
-		// returns null, and Flag.save() then does formvalue = remove()
-		// = '0' (because rmempty = false) — which silently disables every
-		// other guest when you add a new one. Return the existing UCI
-		// value instead so isEqual() short-circuits the write.
-		o.formvalue = function(section_id) {
-			let widget = this.getUIElement(section_id);
-			if (widget && typeof widget.isChecked === 'function')
-				return widget.isChecked() ? '1' : '0';
-			let v = uci.get('guestwifi', section_id, 'enable');
-			return (v == null || v === '') ? '1' : v;
-		};
-		o.write = function(section_id, formvalue) {
-			if (formvalue == null || formvalue === '')
-				return;
-			let on = (formvalue === '1' || formvalue === true || formvalue === 1 ||
-			          formvalue === 'on' || formvalue === 'true');
-			uci.set('guestwifi', section_id, 'enable', on ? '1' : '0');
-		};
 
 		o = s.option(form.Value, 'ssid', _('Network name (SSID)'));
 		o.rmempty = false;
@@ -884,6 +796,63 @@ return view.extend({
 			let val = this.cfgvalue(section_id) || this.default;
 			return encryptionLabel(val);
 		};
+
+		o = s.option(form.Value, 'interface_ip', _('Interface IP address'));
+		o.datatype = 'ip4addr';
+		o.rmempty = false;
+		o.default = DEFAULTS.ip;
+		o.cfgvalue = function(section_id) {
+			let val = uci.get('guestwifi', section_id, 'interface_ip');
+			if (val) return val;
+			return randomFreeGuestIp(section_id) || DEFAULTS.ip;
+		};
+
+		o.textvalue = function(section_id) {
+			let val = this.cfgvalue(section_id) || this.default;
+			return E('code', {}, val);
+		};
+		o.validate = function(section_id, value) {
+			if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(value))
+				return true;
+
+			let used = usedInterfaceIps(section_id);
+			if (!used[value])
+				return true;
+
+			let newIp = randomFreeGuestIp(section_id);
+			if (!newIp) {
+				return _('The address %s is already in use and no free address is available in the 172.16.0.1 - 172.31.0.1 range.').format(value);
+			}
+
+			let el = this.getUIElement(section_id);
+			if (el) el.setValue(newIp);
+			return true;
+		};
+
+		o = s.option(form.Value, 'netmask', _('Netmask'));
+		o.datatype = 'ip4addr';
+		o.rmempty = false;
+		o.default = DEFAULTS.netmask;
+		o.modalonly = true;
+
+		o = s.option(form.Value, 'dhcp_start', _('DHCP range start'),
+			_('Lowest leased address, as offset from the network address.'));
+		o.datatype = 'uinteger';
+		o.rmempty = false;
+		o.default = DEFAULTS.dhcpStart;
+		o.modalonly = true;
+
+		o = s.option(form.Value, 'dhcp_limit', _('DHCP client limit'),
+			_('Maximum number of leased addresses.'));
+		o.datatype = 'uinteger';
+		o.rmempty = false;
+		o.default = DEFAULTS.dhcpLimit;
+		o.modalonly = true;
+
+		o = s.option(form.Value, 'dhcp_lease', _('DHCP lease time'),
+			_('E.g. "1h", "30m", "12h". Minimum is "2m".'));
+		o.rmempty = false;
+		o.default = DEFAULTS.dhcpLease;
 
 		o = s.option(form.Value, 'password', _('Password'), ' ');
 		o.password = true;
@@ -1132,63 +1101,6 @@ return view.extend({
 			]);
 		};
 
-		o = s.option(form.Value, 'interface_ip', _('Interface IP address'));
-		o.datatype = 'ip4addr';
-		o.rmempty = false;
-		o.default = DEFAULTS.ip;
-		o.cfgvalue = function(section_id) {
-			let val = uci.get('guestwifi', section_id, 'interface_ip');
-			if (val) return val;
-			return randomFreeGuestIp(section_id) || DEFAULTS.ip;
-		};
-
-		o.textvalue = function(section_id) {
-			let val = this.cfgvalue(section_id) || this.default;
-			return E('code', {}, val);
-		};
-		o.validate = function(section_id, value) {
-			if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(value))
-				return true;
-
-			let used = usedInterfaceIps(section_id);
-			if (!used[value])
-				return true;
-
-			let newIp = randomFreeGuestIp(section_id);
-			if (!newIp) {
-				return _('The address %s is already in use and no free address is available in the 172.16.0.1 - 172.31.0.1 range.').format(value);
-			}
-
-			let el = this.getUIElement(section_id);
-			if (el) el.setValue(newIp);
-			return true;
-		};
-
-		o = s.option(form.Value, 'netmask', _('Netmask'));
-		o.datatype = 'ip4addr';
-		o.rmempty = false;
-		o.default = DEFAULTS.netmask;
-		o.modalonly = true;
-
-		o = s.option(form.Value, 'dhcp_start', _('DHCP range start'),
-			_('Lowest leased address, as offset from the network address.'));
-		o.datatype = 'uinteger';
-		o.rmempty = false;
-		o.default = DEFAULTS.dhcpStart;
-		o.modalonly = true;
-
-		o = s.option(form.Value, 'dhcp_limit', _('DHCP client limit'),
-			_('Maximum number of leased addresses.'));
-		o.datatype = 'uinteger';
-		o.rmempty = false;
-		o.default = DEFAULTS.dhcpLimit;
-		o.modalonly = true;
-
-		o = s.option(form.Value, 'dhcp_lease', _('DHCP lease time'),
-			_('E.g. "1h", "30m", "12h". Minimum is "2m".'));
-		o.rmempty = false;
-		o.default = DEFAULTS.dhcpLease;
-
 		o = s.option(form.ListValue, 'isolate', _('Client isolation'),
 			_('Blocks communication between clients on this guest network.'));
 		o.value('1', _('Yes'));
@@ -1245,35 +1157,7 @@ return view.extend({
 		o.default = DEFAULTS.fwDnsPort;
 		o.modalonly = true;
 
-		return m.render().then(function(node) {
-			// LuCI theme often wins specificity over our injected <style>.
-			// Set inline style with !important on every modal that opens.
-			if (!window._qaModalObserver) {
-				try {
-					window._qaModalObserver = new MutationObserver(function(muts) {
-						for (let i = 0; i < muts.length; i++) {
-							let added = muts[i].addedNodes;
-							for (let j = 0; j < added.length; j++) {
-								let n = added[j];
-								if (!n || n.nodeType !== 1) continue;
-								let targets = [];
-								if (n.classList && n.classList.contains('modal')) targets.push(n);
-								if (n.querySelectorAll) {
-									let inner = n.querySelectorAll('.modal, .cbi-modal');
-									for (let k = 0; k < inner.length; k++) targets.push(inner[k]);
-								}
-								for (let t = 0; t < targets.length; t++) {
-									targets[t].style.setProperty('width', 'min(95vw, 1200px)', 'important');
-									targets[t].style.setProperty('max-width', 'calc(100vw - 32px)', 'important');
-								}
-							}
-						}
-					});
-					window._qaModalObserver.observe(document.body, { childList: true, subtree: true });
-				} catch(e) {}
-			}
-			return node;
-		});
+		return m.render();
 	},
 
 	handleSave: function(ev) {
@@ -1408,7 +1292,7 @@ return view.extend({
             if (cur === nb) { ui.addNotification('Theme', 'Already using "' + themeKey + '".', 'info'); return; }
             ui.addNotification('Theme', 'Applying "' + themeKey + '"...', 'info');
             uci.set('luci', 'main', 'mediaurlbase', nb);
-            uci.save().then(function() { return ui.changes.apply(false); }).then(function() { setTimeout(function() { window.location.reload(); }, 500); })
+            uci.save().then(function() { return uci.apply(10); }).then(function() { setTimeout(function() { window.location.reload(); }, 500); })
               .catch(function(err) { ui.addNotification('Theme Error', (err && err.message) ? err.message : String(err), 'danger'); });
         }).catch(function(err) { ui.addNotification('Theme Error', (err && err.message) ? err.message : String(err), 'danger'); });
     },
@@ -1419,7 +1303,7 @@ return view.extend({
             if (cur === langCode) { ui.addNotification('Language', 'Already set.', 'info'); return; }
             ui.addNotification('Language', 'Switching to ' + langCode + '...', 'info');
             uci.set('luci', 'main', 'lang', langCode);
-            uci.save().then(function() { return ui.changes.apply(false); }).then(function() { setTimeout(function() { window.location.reload(); }, 500); })
+            uci.save().then(function() { return uci.apply(10); }).then(function() { setTimeout(function() { window.location.reload(); }, 500); })
               .catch(function(err) { ui.addNotification('Language Error', (err && err.message) ? err.message : String(err), 'danger'); });
         }).catch(function(err) { ui.addNotification('Language Error', (err && err.message) ? err.message : String(err), 'danger'); });
     },
@@ -3520,52 +3404,6 @@ return view.extend({
         try { embedParam = new URLSearchParams(window.location.search).get('embed') || ''; } catch(e) {}
 
         if (embedParam === 'guestwifi') {
-            // Walk the parent document and un-cap max-width on every
-            // ancestor of this iframe. The theme (Argon) sets
-            // .container{max-width:940px}, and injecting a <style> into
-            // the parent loses to theme CSS that loads after us. Inline
-            // !important on the actual DOM nodes always wins.
-            try {
-                var pd2 = window.parent && window.parent.document;
-                if (pd2) {
-                    var iframeEl = pd2.getElementById('qa-guestwifi-iframe');
-                    var anc = iframeEl ? iframeEl.parentNode : null;
-                    while (anc && anc.tagName && anc.tagName !== 'BODY') {
-                        try {
-                            anc.style.setProperty('max-width', 'none', 'important');
-                            anc.style.setProperty('width', '100%', 'important');
-                        } catch(e) {}
-                        anc = anc.parentNode;
-                    }
-                }
-            } catch(e) {}
-            // Walk the parent document and un-cap max-width on every
-            // ancestor of this iframe. Runs on a 1s interval so if
-            // LuCI re-renders its view container (which re-applies
-            // the theme's .container{max-width:940px} rule), we snap
-            // it back to full width.
-            function qaUncapAncestors() {
-                try {
-                    var pd2 = window.parent && window.parent.document;
-                    if (!pd2) return;
-                    var iframeEl = pd2.getElementById('qa-guestwifi-iframe');
-                    if (!iframeEl) return;
-                    iframeEl.style.setProperty('width', '100%', 'important');
-                    iframeEl.style.setProperty('max-width', 'none', 'important');
-                    var anc = iframeEl.parentNode;
-                    while (anc && anc.tagName && anc.tagName !== 'BODY') {
-                        try {
-                            anc.style.setProperty('max-width', 'none', 'important');
-                            anc.style.setProperty('width', '100%', 'important');
-                        } catch(e) {}
-                        anc = anc.parentNode;
-                    }
-                } catch(e) {}
-            }
-            qaUncapAncestors();
-            if (!window._qaUncapTimer) {
-                window._qaUncapTimer = setInterval(qaUncapAncestors, 1000);
-            }
             var gw = new GuestWifiViewClass();
             self.embedGuestWifi = gw;
             return Promise.resolve(gw.load()).then(function() {
@@ -3634,78 +3472,158 @@ return view.extend({
             }
             else if (id === 'crontab') tabContent.appendChild(self.renderCrontabWizard());
             else if (id === 'guestwifi') {
-                tabContent.innerHTML = '';
-                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' },
-                    _('Loading guest WiFi form...')));
+                // Guest WiFi's form.Map hijacks #view when rendered inline. Isolate it in an iframe.
+                var baseUrl = window.location.pathname;
+                var iframeUrl = baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=guestwifi';
+                var infoBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.85em;display:flex;align-items:center;gap:12px;flex-wrap:wrap;' }, [
+                    E('span', { 'style': 'flex:1;' }, 'Guest WiFi runs in an isolated frame so this tab bar stays visible. Save & Apply works normally inside the frame.'),
+                    E('a', { 'href': iframeUrl, 'target': '_blank', 'style': 'color:#1e90ff;font-weight:bold;' }, 'Open in new tab ↗'),
+                    E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
+                        var f = document.getElementById('qa-guestwifi-iframe');
+                        if (f) { var s = f.src; f.src = 'about:blank'; setTimeout(function(){ f.src = s; }, 50); }
+                    } }, '↻ Reload')
+                ]);
+                var ifr = document.createElement('iframe');
+                ifr.id = 'qa-guestwifi-iframe';
+                ifr.style.cssText = 'width:100%;height:600px;min-height:400px;display:block;border:1px solid rgba(0,0,0,0.1);border-radius:6px;background:transparent;overflow:hidden;';
 
-                var gw = new GuestWifiViewClass();
-                self.embedGuestWifi = gw;
-
-                Promise.resolve(gw.load()).then(function() {
-                    return gw.render();
-                }).then(function(node) {
-                    tabContent.innerHTML = '';
-
-                    // Strip any page-action bar the inner map produced; we
-                    // render our own Save / Save & Apply below.
+                function stripEmbedChrome() {
+                    var f = document.getElementById('qa-guestwifi-iframe');
+                    if (!f) return;
                     try {
-                        var acts = node.querySelectorAll('.cbi-page-actions');
-                        for (var ai = 0; ai < acts.length; ai++) {
-                            if (acts[ai].parentNode)
-                                acts[ai].parentNode.removeChild(acts[ai]);
+                        var doc = f.contentDocument;
+                        if (!doc || !doc.body) return;
+
+                        // 1. Inject generic "hide chrome" CSS
+                        if (!doc.getElementById('qa-embed-css')) {
+                            var s = doc.createElement('style');
+                            s.id = 'qa-embed-css';
+                            s.textContent = [
+                                'html, body { padding: 0 !important; margin: 0 !important; }',
+                                'body > header, body > nav, body > aside, body > footer { display: none !important; }',
+                                'header, nav, aside, #header, #mainmenu, #menubar, #sidebar, .header, .main-menu, .sidebar, .navigation, .navbar { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }',
+                                '.main-left, .main-left * { display: none !important; }',
+                                '.main { padding-top: 0 !important; margin-top: 0 !important; top: 0 !important; }',
+                                '.main-right { margin-left: 0 !important; padding: 0 !important; }',
+                                '#maincontent, #view, .cbi-map { padding-top: 0 !important; margin-top: 0 !important; }',
+                                'body { overflow-x: hidden; }',
+                                'a[href*="logout"], .logout, .main-right .logout { display: none !important; }',
+                                'footer, .footer, .fs-footer, #footer, [role="contentinfo"] { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; padding: 0 !important; margin: 0 !important; }'
+                            ].join('\n');
+                            doc.head.appendChild(s);
+                        }
+
+                        // 2. DOM-walk: hide every sibling on the path from target up to body
+                        var target = doc.querySelector('#maincontent')
+                            || doc.querySelector('#view')
+                            || doc.querySelector('.cbi-map')
+                            || doc.querySelector('.main-right')
+                            || doc.querySelector('.main');
+                        if (!target) return;
+
+                        var el = target;
+                        while (el && el.parentNode && el.parentNode !== doc.documentElement) {
+                            var parent = el.parentNode;
+                            var kids = parent.children;
+                            for (var i = 0; i < kids.length; i++) {
+                                var k = kids[i];
+                                if (k === el) continue;
+                                if (k.tagName === 'SCRIPT' || k.tagName === 'STYLE' || k.tagName === 'LINK') continue;
+                                var kid = (k.id || '') + ' ' + (k.className || '');
+                                if (/modal|overlay|notification|alert|dialog|spinning|popup|tooltip/i.test(kid)) continue;
+                                k.style.display = 'none';
+                            }
+                            if (parent === doc.body) break;
+                            el = parent;
+                        }
+
+                        // 3. Explicitly show the target chain
+                        var showChain = target;
+                        while (showChain && showChain !== doc.documentElement) {
+                            showChain.style.display = '';
+                            showChain.style.visibility = '';
+                            showChain = showChain.parentNode;
+                        }
+                    } catch(e) { /* cross-origin, ignore */ }
+                }
+
+                function autoSizeIframe() {
+                    try {
+                        var f = document.getElementById('qa-guestwifi-iframe');
+                        if (!f) return;
+                        var d = f.contentDocument;
+                        if (!d || !d.body) return;
+                        // Reset to a small height first so we can measure natural content height
+                        f.style.height = '100px';
+                        var h = Math.max(
+                            d.body.scrollHeight,
+                            d.documentElement ? d.documentElement.scrollHeight : 0,
+                            400
+                        );
+                        f.style.height = (h + 20) + 'px';
+                    } catch(e) {}
+                }
+
+                ifr.addEventListener('load', function() {
+                    stripEmbedChrome();
+
+                    // Hide the parent page footer once (outer LuCI layout "Powered by" line)
+                    try {
+                        if (!window._qaParentFooterHidden) {
+                            window._qaParentFooterHidden = true;
+                            var pfs = document.querySelectorAll('footer, .fs-footer, #footer, [role="contentinfo"]');
+                            for (var pi = 0; pi < pfs.length; pi++) {
+                                if (!pfs[pi].closest('#qa-guestwifi-iframe')) {
+                                    pfs[pi].setAttribute('data-qa-hidden', '1');
+                                    pfs[pi].style.setProperty('display', 'none', 'important');
+                                }
+                            }
                         }
                     } catch(e) {}
 
-                    tabContent.appendChild(node);
+                    // Guest WiFi form is rendered inside the iframe with its own
+                    // LuCI page-actions. Make sure they are visible inside the iframe.
+                    try {
+                        var doc = ifr.contentDocument;
+                        if (doc) {
+                            var pa = doc.querySelectorAll('.cbi-page-actions');
+                            for (var i = 0; i < pa.length; i++) {
+                                pa[i].style.display = '';
+                                pa[i].style.visibility = '';
+                                pa[i].style.marginTop = '14px';
+                                pa[i].style.paddingTop = '12px';
+                                pa[i].style.borderTop = '1px solid rgba(0,0,0,0.08)';
+                            }
+                        }
+                    } catch(e) {}
 
-                    var btnRow = E('div', {
-                        'class': 'qa-page-actions',
-                        'style': 'margin-top:20px;padding-top:15px;border-top:1px solid rgba(0,0,0,0.08);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;'
-                    }, [
-                        E('button', { 'class': 'btn cbi-button cbi-button-reset', 'click': function() {
-                            if (!confirm(_('Reload the guest WiFi form? Unsaved changes are lost.')))
-                                return;
-                            self.switchTab('guestwifi');
-                        } }, _('Reset')),
-                        E('button', { 'class': 'btn cbi-button cbi-button-save', 'click': function() {
-                            ui.addNotification(null, E('p', {}, _('Saving guest WiFi...')), 'info');
-                            Promise.resolve(gw.handleSave()).then(function() {
-                                ui.addNotification(null,
-                                    E('p', {}, _('Guest WiFi saved to memory. Use Save & Apply to commit.')),
-                                    'info');
-                                self.refreshPendingCount();
-                            }).catch(function(err) {
-                                var msg = (err && err.message) ? err.message : String(err);
-                                ui.addNotification(null,
-                                    E('p', {}, _('Save failed: ') + msg), 'danger');
-                            });
-                        } }, _('Save')),
-                        E('button', { 'class': 'btn cbi-button cbi-button-apply important', 'click': function() {
-                            ui.addNotification(null, E('p', {}, _('Saving and applying guest WiFi...')), 'info');
-                            Promise.resolve(gw.handleSave()).then(function() {
-                                return ui.changes.apply(false);
-                            }).then(function() {
-                                ui.addNotification(null,
-                                    E('p', {}, _('Guest WiFi saved and applied.')), 'info');
-                                self.refreshPendingCount();
-                            }).catch(function(err) {
-                                var msg = (err && err.message) ? err.message : String(err);
-                                if (/No data|code 5/i.test(msg))
-                                    return;
-                                ui.addNotification(null,
-                                    E('p', {}, _('Apply failed: ') + msg), 'danger');
-                            });
-                        } }, _('Save & Apply'))
-                    ]);
-                    tabContent.appendChild(btnRow);
-                }).catch(function(err) {
-                    tabContent.innerHTML = '';
-                    tabContent.appendChild(E('div', {
-                        'class': 'alert-message error',
-                        'style': 'padding:20px;'
-                    }, 'Guest WiFi form error: ' +
-                       (err && err.message ? err.message : String(err))));
+                    // Auto-resize: fire multiple times to catch late DOM/CSS settling
+                    setTimeout(autoSizeIframe, 150);
+                    setTimeout(autoSizeIframe, 500);
+                    setTimeout(autoSizeIframe, 1500);
+                    setTimeout(autoSizeIframe, 3000);
+
+                    // Re-measure when iframe content changes (modals, save notifications, etc.)
+                    // Disconnect previous observer to avoid stacking on every iframe reload
+                    if (self._guestWifiMO) { try { self._guestWifiMO.disconnect(); } catch(e) {} self._guestWifiMO = null; }
+                    try {
+                        var d2 = ifr.contentDocument;
+                        if (d2 && d2.body && window.MutationObserver) {
+                            self._guestWifiMO = new MutationObserver(function() { autoSizeIframe(); });
+                            self._guestWifiMO.observe(d2.body, { childList: true, subtree: true, attributes: true });
+                        }
+                    } catch(e) {}
                 });
+                ifr.src = iframeUrl;
+
+                // Belt-and-suspenders: poll a few times in case load fires early
+                setTimeout(stripEmbedChrome, 150);
+                setTimeout(stripEmbedChrome, 500);
+                setTimeout(stripEmbedChrome, 1200);
+                setTimeout(stripEmbedChrome, 2500);
+                tabContent.innerHTML = '';
+                tabContent.appendChild(infoBar);
+                tabContent.appendChild(ifr);
             }
             else if (id === 'ttyd') {
                 tabContent.innerHTML = '';
