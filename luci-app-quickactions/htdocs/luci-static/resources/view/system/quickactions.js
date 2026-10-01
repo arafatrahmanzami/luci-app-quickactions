@@ -1333,10 +1333,13 @@ return view.extend({
             });
             return self.fetchThemeList().then(function(themes) {
                 self.installedThemes = themes || [];
-                return Promise.all([
-                    uci.load('luci').then(function() { return uci.sections('luci', 'command'); }).catch(function(){ return []; }),
-                    self.callInitStatus().catch(function(){ return {}; })
-                ]);
+                return self.fetchLanguageList().then(function(langs) {
+                    self.installedLanguages = langs || [];
+                    return Promise.all([
+                        uci.load('luci').then(function() { return uci.sections('luci', 'command'); }).catch(function(){ return []; }),
+                        self.callInitStatus().catch(function(){ return {}; })
+                    ]);
+                });
             });
         });
     },
@@ -1418,6 +1421,18 @@ return view.extend({
         }).catch(function() { return []; });
     },
 
+    fetchLanguageList: function() {
+        var sh = "ls -1 /usr/lib/lua/luci/i18n/ 2>/dev/null | grep -E '^base\..*\.lmo$' | sed 's/^base\.//; s/\.lmo$//' | sort -u";
+        return this.callSystemCommand('/bin/sh', ['-c', sh]).then(function(r) {
+            var list = [];
+            (r.stdout || '').split('\n').forEach(function(line) {
+                line = line.trim();
+                if (line && /^[a-zA-Z_]+$/.test(line)) list.push(line);
+            });
+            return list;
+        }).catch(function() { return []; });
+    },
+
     handleThemeSwitch: function(themeKey) {
         uci.load('luci').then(function() {
             var cur = uci.get('luci', 'main', 'mediaurlbase');
@@ -1477,21 +1492,59 @@ return view.extend({
 
     executeValidatedCommand: function(commandStr, buttonName, btnElement) {
         var self = this;
+
+        // LuCI pseudo-command: @download:<url> means "open this URL in a new
+        // browser tab" (typically the cgi-backup endpoint). It cannot be run
+        // through /bin/sh; handle it here.
+        if (/^@download:/.test(commandStr)) {
+            var url = commandStr.substring(10);
+            btnElement.setAttribute('data-executing', 'true');
+            btnElement.style.opacity = '0.5';
+            try {
+                var link = document.createElement('a');
+                link.href = url;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                ui.addNotification(null,
+                    E('p', {}, _('Downloading: ') + url), 'info');
+            } catch (e) {
+                ui.addNotification(null,
+                    E('p', {}, _('Download failed: ') + (e.message || e)), 'danger');
+            }
+            setTimeout(function() {
+                btnElement.setAttribute('data-executing', 'false');
+                btnElement.style.opacity = '1';
+            }, 800);
+            return;
+        }
+
         btnElement.setAttribute('data-executing', 'true');
         btnElement.style.opacity = '0.5';
-        ui.addNotification('Executing', buttonName + ' is running...', 'info');
+        if (typeof ui.addTimeLimitedNotification === 'function') {
+            ui.addTimeLimitedNotification('Executing', buttonName + ' is running...', 8000, 'info');
+        } else {
+            ui.addNotification('Executing', buttonName + ' is running...', 'info');
+        }
         this.callSystemCommand('/bin/sh', [ '-c', commandStr ]).then(function(result) {
             btnElement.setAttribute('data-executing', 'false');
             btnElement.style.opacity = '1';
             var output = result.stdout || '';
             if (result.stderr) output += '\n[stderr]\n' + result.stderr;
-            if (!output.trim()) output = 'Done.';
+            var __failed = (result.code != null && result.code !== 0);
+            if (!output.trim()) output = __failed ? '(no output)' : 'Done.';
+            if (__failed) output = '[exit code ' + result.code + ']\n' + output;
             var uid = 'qa-out-' + Date.now();
             var pre = document.createElement('pre');
             pre.id = uid;
             pre.style.cssText = 'text-align:left;white-space:pre-wrap;max-height:70vh;overflow-y:auto;background:#1e1e1e;color:#00ff00;padding:15px;border-radius:8px;font-family:monospace;font-size:0.9em;width:100%;box-sizing:border-box;margin:0;';
             pre.textContent = output;
-            ui.addNotification(buttonName + ' Done', pre, 'info');
+            ui.addNotification(
+                __failed ? (buttonName + ' \u2014 exit ' + result.code) : (buttonName + ' Done'),
+                pre,
+                __failed ? 'warning' : 'info');
             var el = document.getElementById(uid);
             if (el && el.closest) { var c = el.closest('.alert'); if (c) { c.style.maxWidth = '95%'; c.style.width = 'auto'; } }
             self.updateAllButtonsRealtime();
@@ -1532,16 +1585,35 @@ return view.extend({
     },
 
     runCommand: function(cmd, label) {
+        // Legacy LuCI pseudo-command. The old /cgi-bin/cgi-backup endpoint
+        // requires a POST with a CSRF token; opening it as a GET returns
+        // "Invalid form data". Guide the user to LuCI's working backup page.
+        if (/^@download:/.test(cmd)) {
+            var url = cmd.substring(10);
+            ui.addNotification(null, E('div', {},
+                E('p', {}, _('The legacy download endpoint no longer works directly.')),
+                E('p', {}, _('Please use System → Backup / Flash Firmware to download a config backup.')),
+                E('p', { 'style': 'margin-top:6px;' },
+                    E('a', { 'href': '/cgi-bin/luci/admin/system/flash', 'target': '_blank' },
+                        _('Open backup page →')))
+            ), 'info');
+            return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+        }
         return this.callSystemCommand('/bin/sh', [ '-c', cmd ]).then(function(r) {
             var out = r.stdout || '';
             if (r.stderr) out += '\n[stderr]\n' + r.stderr;
-            if (!out.trim()) out = 'Done.';
+            var __failed = (r.code != null && r.code !== 0);
+            if (!out.trim()) out = __failed ? '(no output)' : 'Done.';
+            if (__failed) out = '[exit code ' + r.code + ']\n' + out;
             var uid = 'qa-tool-out-' + Date.now();
             var pre = document.createElement('pre');
             pre.id = uid;
             pre.style.cssText = 'text-align:left;white-space:pre-wrap;max-height:70vh;overflow-y:auto;background:#1e1e1e;color:#00ff00;padding:12px;border-radius:6px;font-family:monospace;font-size:0.9em;width:100%;box-sizing:border-box;margin:0;';
             pre.textContent = out;
-            ui.addNotification(label + ' Done', pre, 'info');
+            ui.addNotification(
+                __failed ? (label + ' \u2014 exit ' + r.code) : (label + ' Done'),
+                pre,
+                __failed ? 'warning' : 'info');
             var el = document.getElementById(uid);
             if (el && el.closest) { var c = el.closest('.alert'); if (c) { c.style.maxWidth = '95%'; c.style.width = 'auto'; } }
             return r;
@@ -1580,9 +1652,28 @@ return view.extend({
             themeBar.appendChild(E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'padding:4px 12px;text-transform:capitalize;font-weight:bold;', 'click': function() { self.handleThemeSwitch(t); } }, t));
         });
         var langBar = E('div', { 'style': 'background:rgba(0,0,0,0.04);padding:12px 14px;border-radius:8px;margin-bottom:20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, [E('strong', { 'style': 'min-width:130px;' }, 'Language Switcher: ')]);
-        [ { code: 'en', label: 'English' }, { code: 'bn_BD', label: 'বাংলা' } ].forEach(function(l) {
-            var active = (currentLang === l.code);
-            var btn = E('button', { 'class': 'btn cbi-button ' + (active ? 'cbi-button-action important' : 'cbi-button-neutral'), 'style': 'padding:4px 14px;font-weight:bold;', 'click': function() { self.handleLanguageSwitch(l.code); } }, l.label);
+        var LANG_NAMES = {
+            'en': 'English', 'bn': '\u09ac\u09be\u0982\u09b2\u09be', 'bn_BD': '\u09ac\u09be\u0982\u09b2\u09be',
+            'zh_Hans': '\u7b80\u4f53\u4e2d\u6587', 'zh_Hant': '\u7e41\u9ad4\u4e2d\u6587',
+            'ar': '\u0627\u0644\u0639\u0631\u0628\u064a\u0629', 'cs': '\u010ce\u0161tina', 'da': 'Dansk',
+            'de': 'Deutsch', 'el': '\u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac', 'es': 'Espa\u00f1ol',
+            'fa': '\u0641\u0627\u0631\u0633\u06cc', 'fi': 'Suomi', 'fil': 'Filipino',
+            'fr': 'Fran\u00e7ais', 'he': '\u05e2\u05d1\u05e8\u05d9\u05ea', 'hi': '\u0939\u093f\u0928\u094d\u0926\u0940',
+            'hu': 'Magyar', 'it': 'Italiano', 'ja': '\u65e5\u672c\u8a9e',
+            'ko': '\ud55c\uad6d\uc5b4', 'ms': 'Bahasa Melayu', 'nb_NO': 'Norsk Bokm\u00e5l',
+            'nl': 'Nederlands', 'pl': 'Polski', 'pt': 'Portugu\u00eas',
+            'pt_BR': 'Portugu\u00eas (BR)', 'ro': 'Rom\u00e2n\u0103', 'ru': '\u0420\u0443\u0441\u0441\u043a\u0438\u0439',
+            'sk': 'Sloven\u010dina', 'sv': 'Svenska', 'tr': 'T\u00fcrk\u00e7e',
+            'uk': '\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430', 'vi': 'Ti\u1ebfng Vi\u1ec7t'
+        };
+        var langs = (self.installedLanguages && self.installedLanguages.length)
+            ? self.installedLanguages.slice()
+            : ['en', 'bn_BD'];
+        if (langs.indexOf('en') === -1) langs.unshift('en');
+        langs.forEach(function(code) {
+            var label = LANG_NAMES[code] || code;
+            var active = (currentLang === code);
+            var btn = E('button', { 'class': 'btn cbi-button ' + (active ? 'cbi-button-action important' : 'cbi-button-neutral'), 'style': 'padding:4px 14px;font-weight:bold;', 'click': function() { self.handleLanguageSwitch(code); } }, label);
             langBar.appendChild(btn);
         });
         var grid = E('div', { 'id': 'quickactions-grid-container', 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;' });
@@ -1638,7 +1729,11 @@ return view.extend({
                 if (!cmd) { ui.addNotification('Error', 'No command', 'danger'); return; }
                 if (needsConfirm && !confirm('Confirm: ' + label + '\n\nCommand:\n' + cmd + '\n\nProceed?')) return;
                 btn.setAttribute('data-executing', 'true'); btn.style.opacity = '0.5';
-                ui.addNotification('Running', label + '...', 'info');
+                if (typeof ui.addTimeLimitedNotification === 'function') {
+                    ui.addTimeLimitedNotification('Running', label + '...', 8000, 'info');
+                } else {
+                    ui.addNotification('Running', label + '...', 'info');
+                }
                 self.runCommand(cmd, label).then(function() { btn.setAttribute('data-executing', 'false'); btn.style.opacity = '1'; })
                     .catch(function(err) { btn.setAttribute('data-executing', 'false'); btn.style.opacity = '1'; ui.addNotification('Failed', (err && err.message) ? err.message : String(err), 'danger'); });
             });
@@ -1675,7 +1770,11 @@ return view.extend({
                 if (!u || !p) { ui.addNotification('Error', 'Username and password required.', 'danger'); return; }
                 if (!confirm('Reconfigure WAN as PPPoE with user "' + u + '"? Internet may drop briefly.')) return;
                 var cmd = 'cp /etc/config/network /etc/config/network.bak.$(date +%s) 2>/dev/null; uci -q delete network.wan 2>/dev/null; uci set network.wan=interface; uci set network.wan.proto=pppoe; uci set network.wan.username="' + u + '"; uci set network.wan.password="' + p + '"; uci commit network; /etc/init.d/network restart';
-                ui.addNotification('Running', 'Configuring PPPoE...', 'info');
+                if (typeof ui.addTimeLimitedNotification === 'function') {
+                    ui.addTimeLimitedNotification('Running', 'Configuring PPPoE...', 8000, 'info');
+                } else {
+                    ui.addNotification('Running', 'Configuring PPPoE...', 'info');
+                }
                 self.runCommand(cmd, 'PPPoE Setup');
             } }, 'Apply PPPoE')
         ]));

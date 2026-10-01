@@ -2,9 +2,9 @@
 
 All-in-one dashboard and system-control surface for OpenWrt / ImmortalWrt.
 
-14 tabs: Dashboard, Essential, Tools, Logs, Services, Hotplug, Crontab,
+17 tabs: Dashboard, Essential, Tools, Logs, Services, Hotplug, Crontab,
 Guest WiFi, Terminal (ttyd), Task Plan, Network Setup, Command,
-Dependencies, Configuration.
+Dependencies, Scripts, Failover, VLAN, Configuration.
 
 ---
 
@@ -14,8 +14,8 @@ Dependencies, Configuration.
 
 ```sh
 cd /tmp
-wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r9/luci-app-quickactions_3.0.0-r9_all.ipk
-opkg install --force-reinstall /tmp/luci-app-quickactions_3.0.0-r9_all.ipk
+wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r10/luci-app-quickactions_3.0.0-r10_all.ipk
+opkg install --force-reinstall /tmp/luci-app-quickactions_3.0.0-r10_all.ipk
 /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart
 rm -rf /tmp/luci-*
 ```
@@ -24,9 +24,9 @@ rm -rf /tmp/luci-*
 
 ```sh
 cd /tmp
-wget -O luci-app-quickactions-3.0.0-r9.apk \
-  https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r9/luci-app-quickactions-3.0.0-r9.apk
-apk add --allow-untrusted /tmp/luci-app-quickactions-3.0.0-r9.apk
+wget -O luci-app-quickactions-3.0.0-r10.apk \
+  https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r10/luci-app-quickactions-3.0.0-r10.apk
+apk add --allow-untrusted /tmp/luci-app-quickactions-3.0.0-r10.apk
 /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart
 rm -rf /tmp/luci-*
 ```
@@ -37,8 +37,8 @@ A rootfs tarball is available for advanced/manual installs:
 
 ```sh
 cd /
-wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r9/luci-app-quickactions-3.0.0-r9-rootfs.tar.gz
-tar xzf luci-app-quickactions-3.0.0-r9-rootfs.tar.gz
+wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r10/luci-app-quickactions-3.0.0-r10-rootfs.tar.gz
+tar xzf luci-app-quickactions-3.0.0-r10-rootfs.tar.gz
 chmod 755 /usr/bin/quickactions-*
 chmod 755 /etc/init.d/quickactions-*
 /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart
@@ -94,6 +94,10 @@ Then reconnect any guest clients so they get a fresh /24 DHCP lease.
 
 - PPPoE setup form (backs up `/etc/config/network` first)
 - Change root password
+- **Wireless Quick Edit** — edit SSID / security / password / network /
+  enabled state for every `wifi-iface` on every radio. Bidirectional
+  sync with the Guest WiFi tab when the interface carries a
+  `guest_owner` tag.
 - Quick navigation shortcuts to other LuCI pages
 
 ### Logs
@@ -129,6 +133,7 @@ Then reconnect any guest clients so they get a fresh /24 DHCP lease.
 - Firewall rules auto-generated with `guest_owner` tag for safe cleanup
 - QR code generator for easy client onboarding
 - Strong password generator with configurable length and character sets
+- Default netmask /24 for each guest network
 
 ### Terminal (ttyd)
 
@@ -163,6 +168,54 @@ Then reconnect any guest clients so they get a fresh /24 DHCP lease.
 - List all installed packages with dependencies
 - System package summary
 
+### Scripts
+
+- Create / edit / run / delete shell scripts
+- Scripts stored in `/etc/quickactions/scripts/`
+- Metadata in `/etc/config/quickactions` (`config script` sections)
+- Category tags, timeout, argument passing
+- Failover-lite preset installer (MWAN3 substitute)
+- Built-in help modal
+
+### Failover
+
+- Cron-driven ping test through the primary interface
+- On repeated failure, flushes the conntrack table so the kernel falls
+  back to the backup with the lowest route metric
+- Zero background RAM when idle — a single ping run per minute
+- Configurable primary, backups, check IPs, thresholds, ping timeout
+- Optional Tailscale restart on failover and recovery
+- Optional firewall reload on failover
+- Enable / Disable / Run watchdog / Refresh status buttons
+- Full parameter editor in the tab
+- Uses `/usr/bin/wan-watchdog.sh` (cron every 60 s),
+  `/etc/hotplug.d/iface/99-quickactions-conntrack-flush`,
+  and `/usr/bin/quickactions-failover` (master switch)
+
+### VLAN
+
+- 9 subtabs: Overview, Wizard, Edit, Library, SSID, Import, Safety,
+  Diagnostics, Guide
+- **Overview** — platform detection (DSA vs swconfig), bridges,
+  VLANs, interfaces, DHCP pools, firewall zones, wireless ifaces,
+  EasyMesh devices. Resource-tier selector (auto / low / high)
+- **Wizard** — 7-step flow: target platform, VLAN ID + parent bridge,
+  per-port tagged/untagged assignment, logical interface, DHCP pool,
+  firewall zone, optional SSID attach
+- **Edit** — inline editor for `bridge-vlan` and `network.interface`
+- **Library** — save / load / delete reusable VLAN templates and
+  generated CLI scripts
+- **SSID** — bulk attach any wifi-iface to any network interface
+- **Import** — parse MikroTik RouterOS, Cisco IOS, EdgeOS, or generic
+  802.1Q configs in-browser, then apply or generate CLI
+- **Safety** — snapshots, restore, 90-second auto-rollback
+- **Diagnostics** — live `bridge vlan show`, kernel interface stats,
+  cross-VLAN ping
+- **Guide** — full VLAN primer with lockout warnings and cross-platform
+  syntax examples
+- Cross-platform CLI generation: OpenWrt DSA, OpenWrt swconfig,
+  MikroTik RouterOS 6/7, Cisco IOS/NX-OS, EdgeOS, generic 802.1Q
+
 ### Configuration
 
 - Polling interval
@@ -177,7 +230,7 @@ Then reconnect any guest clients so they get a fresh /24 DHCP lease.
 
 | File | Purpose |
 | --- | --- |
-| `/etc/config/quickactions` | Global settings + essential buttons + shortcuts |
+| `/etc/config/quickactions` | Global settings + essential buttons + shortcuts + failover + vlan + scripts metadata |
 | `/etc/config/guestwifi` | Guest WiFi source of truth (per-network settings) |
 | `/etc/config/hotplug` | Interface event rules + connectivity monitors |
 | `/etc/config/taskplan` | Scheduled and startup tasks |
@@ -194,6 +247,7 @@ survive `opkg upgrade` / `apk upgrade`.
 | `/etc/init.d/quickactions-hotplug` | Regenerates hotplug handler scripts from `/etc/config/hotplug` |
 | `/etc/init.d/quickactions-taskplan` | Runs scheduled and startup tasks |
 | `/etc/init.d/quickactions-netwizard` | Applies shortcuts and backups |
+| `/etc/init.d/quickactions-failover` | Installs cron + hotplug handler for the failover system |
 
 ## Helper binaries
 
@@ -201,6 +255,17 @@ survive `opkg upgrade` / `apk upgrade`.
 | --- | --- |
 | `/usr/bin/quickactions-taskplanhandler` | Task executor, invoked by cron |
 | `/usr/bin/quickactions-wifi-toggle` | Turn all radios on or off |
+| `/usr/bin/wan-watchdog.sh` | Failover watchdog, invoked by cron every 60 s |
+| `/usr/bin/quickactions-failover` | Failover master switch (`on` / `off` / `status` / `test`) |
+
+## rpcd backends
+
+| Object | Purpose |
+| --- | --- |
+| `luci.quickactions-taskplan` | Task Plan read/run endpoints |
+| `luci.quickactions-failover` | Failover status, interfaces, on/off/test |
+| `luci.quickactions-scripts` | Script list/read/write/run/delete |
+| `luci.quickactions-vlan` | VLAN detect, apply, snapshots, generate CLI, diagnostics |
 
 ---
 
@@ -209,8 +274,9 @@ survive `opkg upgrade` / `apk upgrade`.
 After installation, navigate to **System → Quick Actions** (or **Quick
 Actions** in the top menu if your theme supports top-level entries).
 
-The page has 14 tabs. The Dashboard shows live status for all configured
-buttons. Everything else is self-describing.
+The Dashboard shows live status for all configured buttons. The other
+16 tabs are self-describing. Every tab has an in-page guide or tooltips
+where the meaning isn't obvious.
 
 ---
 
@@ -222,9 +288,32 @@ buttons. Everything else is self-describing.
 - `rpcd-mod-luci`
 - `ttyd` (for the Terminal tab)
 
+Optional (for extended VLAN diagnostics):
+
+- `python3-light` (VLAN wizard apply)
+- `lldp` (network map neighbor discovery)
+- `snmp-utils` (external switch VLAN query)
+
 ---
 
 ## Release history
+
+### v3.0.0-r10
+
+- **New VLAN tab** — 9 subtabs, cross-platform config generation for
+  MikroTik / Cisco / EdgeOS / generic 802.1Q, snapshots + auto-rollback.
+- **New Scripts tab** — create / edit / run / delete shell scripts;
+  Failover-lite preset.
+- **New Failover tab** — cron-driven ping test with conntrack flush on
+  primary WAN failure; watchdog + hotplug handler + master switch.
+- **Wireless Quick Edit** — edit every wifi-iface (SSID / security /
+  password / network / enabled); bidirectional sync with Guest WiFi
+  when the interface is a guest.
+- **rpcd backends** for failover, scripts, VLAN.
+- **ACL** extended with 3 new rpcd objects.
+- **uci-defaults** seeders for failover, scripts, and VLAN directories.
+- Minor fixes to Guest WiFi save routing, log level display, and
+  package hygiene (`*.bak-before-*` excluded via `.gitignore`).
 
 ### v3.0.0-r9
 
@@ -237,9 +326,9 @@ Guest WiFi overhaul:
   Save & Apply.
 - **Enable toggle persistence** — the tab-level checkbox now writes to
   UCI. LuCI 24.10's GridSection wraps the `<input type=checkbox>`
-  inside a cbid `<div>`; base `formvalue()` returned null and `save()`
-  wrote `'0'` regardless. The new `formvalue` digs through the wrapper
-  and the row for the real input.
+  inside a cbid `<div>`; base `formvalue()` returned null and
+  `save()` wrote `'0'` regardless. The new `formvalue` digs through
+  the wrapper and the row for the real input.
 - **Save semantics** — `applyAll()` no longer calls
   `ui.changes.apply()`; only Save & Apply triggers the reload.
 - **Default netmask** changed from `/12` to `/24`. Multiple guests on
@@ -250,13 +339,10 @@ Guest WiFi overhaul:
   install only. All configs declared as `conffiles`.
 - **Log level** — loads `system` UCI so the displayed value matches
   `/etc/config/system`, and reloads the page after Apply.
-- **Package size** — local backup files (`*.bak-before-*`) are now
-  excluded via `.gitignore`.
 
 ### v3.0.0-r2
 
-- Robust theme enumeration, ttyd reconnect, theme-agnostic iframe chrome
-  removal.
+- Robust theme enumeration, ttyd reconnect, theme-agnostic iframe chrome removal.
 
 ### v3.0.0
 
@@ -275,9 +361,9 @@ When reporting a bug, include:
 1. OpenWrt / ImmortalWrt version (`cat /etc/openwrt_release`)
 2. Package version (`opkg list-installed | grep quickactions` or
    `apk list -I | grep quickactions`)
-3. Browser console output with the correct context selected (the console
-   context dropdown has separate contexts for `top` and any iframe the
-   page creates)
+3. Browser console output with the correct context selected (the
+   console context dropdown has separate contexts for `top` and any
+   iframe the page creates)
 4. `logread | tail -50` and `dmesg | tail -30`
 
 ---

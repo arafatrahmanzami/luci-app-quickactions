@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-quickactions
 PKG_VERSION:=3.0.0
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 
 PKG_LICENSE:=Apache-2.0
 PKG_MAINTAINER:=arafatrahmanzami <zamimondol@gmail.com>
@@ -20,7 +20,6 @@ define Package/luci-app-quickactions/conffiles
 /etc/config/quickactions
 /etc/config/taskplan
 /etc/config/wizard
-/etc/config/netwizard
 endef
 
 $(eval $(call BuildPackage,luci-app-quickactions))
