@@ -1312,7 +1312,10 @@ return view.extend({
         this.callSystemCommand = rpc.declare({ object: 'file', method: 'exec', params: [ 'command', 'params' ], expect: { '': {} } });
         return Promise.all([
             uci.load('quickactions').catch(function(){}),
-            uci.load('system').catch(function(){})
+            uci.load('system').catch(function(){}),
+            uci.load('wireless').catch(function(){}),
+            uci.load('network').catch(function(){}),
+            uci.load('guestwifi').catch(function(){})
         ]).then(function() {
             var interval = uci.get('quickactions', 'global', 'poll_interval');
             self.pollInterval = parseInt(interval, 10) || 5;
@@ -1707,7 +1710,55 @@ return view.extend({
             });
         }
         var shortcutSection = section('Quick Navigation Shortcuts', shortcutBody);
-        return E('div', {}, [pppoeSection, pwSection, shortcutSection]);
+        // ---- Wireless Quick Edit ----
+        var wifiBody = (function() {
+            var ifaces = uci.sections('wireless', 'wifi-iface') || [];
+            if (!ifaces.length)
+                return E('p', { 'style': 'color:#888;' }, _('No wireless interfaces found.'));
+
+            var table = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+            table.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+                E('th', { 'style': 'padding:8px;' }, _('Status')),
+                E('th', { 'style': 'padding:8px;' }, _('Radio')),
+                E('th', { 'style': 'padding:8px;' }, _('Mode')),
+                E('th', { 'style': 'padding:8px;' }, _('SSID')),
+                E('th', { 'style': 'padding:8px;' }, _('Security')),
+                E('th', { 'style': 'padding:8px;' }, _('Password')),
+                E('th', { 'style': 'padding:8px;' }, _('Network')),
+                E('th', { 'style': 'padding:8px;text-align:right;' }, _(''))
+            ]));
+
+            ifaces.forEach(function(w) {
+                var sid = w['.name'];
+                var disabled = (w.disabled === '1');
+                var key = w.key || w.key1 || '';
+                var keyShown = key ? (key.length > 6 ? key.slice(0,3) + '…' + key.slice(-2) : '••••') : '';
+                var mode = w.mode || 'ap';
+                var row = E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.06);' });
+                row.appendChild(E('td', { 'style': 'padding:8px;' },
+                    E('span', { 'class': 'gw-badge ' + (disabled ? 'gw-badge-off' : 'gw-badge-on') },
+                        disabled ? _('disabled') : _('enabled'))));
+                row.appendChild(E('td', { 'style': 'padding:8px;' }, w.device || '—'));
+                row.appendChild(E('td', { 'style': 'padding:8px;' }, mode));
+                row.appendChild(E('td', { 'style': 'padding:8px;' }, w.ssid || '—'));
+                row.appendChild(E('td', { 'style': 'padding:8px;' }, w.encryption || '—'));
+                row.appendChild(E('td', { 'style': 'padding:8px;font-family:monospace;' }, keyShown || '—'));
+                row.appendChild(E('td', { 'style': 'padding:8px;' }, w.network || '—'));
+                row.appendChild(E('td', { 'style': 'padding:8px;text-align:right;' },
+                    E('button', { 'class': 'btn cbi-button',
+                        'style': 'padding:4px 12px;font-size:0.85em;',
+                        'click': function() { self.wirelessQuickEdit(sid); } }, _('Edit'))));
+                table.appendChild(row);
+            });
+            return table;
+        })();
+        var wifiSection = section('Wireless Quick Edit', E('div', {}, [
+            E('p', { 'style': 'color:#666;font-size:0.9em;margin:0 0 12px 0;' },
+                _('Change SSID, security, password, or attach a network interface — for every wireless interface on both radios (master / client / mesh / guest / iot).')),
+            wifiBody
+        ]));
+
+        return E('div', {}, [pppoeSection, pwSection, wifiSection, shortcutSection]);
     },
 
     renderLogs: function() {
@@ -3489,6 +3540,2477 @@ return view.extend({
         ]);
     },
 
+    renderScripts: function() {
+        var self = this;
+
+        var rpcList = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'list', expect: { '': {} }
+        });
+        var rpcRead = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'read',
+            params: ['sid'], expect: { '': {} }
+        });
+        var rpcWrite = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'write',
+            params: ['sid','name','category','content','args','timeout','enabled'], expect: { '': {} }
+        });
+        var rpcDelete = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'delete',
+            params: ['sid'], expect: { '': {} }
+        });
+        var rpcRun = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'run',
+            params: ['sid'], expect: { '': {} }
+        });
+        var rpcChmod = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'chmod',
+            params: ['sid','mode'], expect: { '': {} }
+        });
+        var rpcPreset = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'install_preset',
+            params: ['preset'], expect: { '': {} }
+        });
+        var rpcDetail = rpc.declare({
+            object: 'luci.quickactions-scripts', method: 'detail',
+            params: ['sid'], expect: { '': {} }
+        });
+
+        function catIcon(c) {
+            return ({ 'failover': '🔁', 'network': '🌐', 'system': '⚙️',
+                      'iot': '📡', 'custom': '📜' })[c] || '📜';
+        }
+
+        // ---- Table ----
+        var tableWrap = E('div', { 'id': 'qa-scripts-table', 'style': 'overflow-x:auto;' });
+
+        function refreshTable() {
+            tableWrap.innerHTML = '';
+            tableWrap.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading scripts...')));
+            rpcList().then(function(r) {
+                var scripts = (r && r.scripts) || [];
+                tableWrap.innerHTML = '';
+
+                var addBar = E('div', { 'style': 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;' }, [
+                    E('button', { 'class': 'btn cbi-button cbi-button-action important',
+                        'click': function() { openEditor(null); } }, _('+ Create new script')),
+                    E('button', { 'class': 'btn cbi-button',
+                        'click': function() {
+                            if (!confirm(_('Install Failover-lite preset? Adds an editable MWAN3-substitute script.'))) return;
+                            rpcPreset('failover').then(function(res) {
+                                ui.addNotification(null, E('p', {}, _('Preset installed: ') + (res.sid || '')), 'info');
+                                refreshTable();
+                            }).catch(function(err) {
+                                ui.addNotification(null, E('p', {}, 'Failed: ' + (err.message || err)), 'danger');
+                            });
+                        } }, _('Install Failover-lite preset')),
+                    E('button', { 'class': 'btn cbi-button',
+                        'click': function() {
+                            ui.showModal(_('Scripts — help'), [
+                                E('div', { 'style': 'line-height:1.6;font-size:0.92em;max-width:640px;' }, [
+                                    E('p', {}, _('Scripts live in /etc/quickactions/scripts/. Each script is a normal shell file.')),
+                                    E('ul', {}, [
+                                        E('li', {}, _('Name — display name.')),
+                                        E('li', {}, _('Category — failover / network / system / iot / custom (icon only).')),
+                                        E('li', {}, _('Timeout — seconds before the script is force-killed.')),
+                                        E('li', {}, _('Arguments — passed as $1 $2 on Run.')),
+                                        E('li', {}, _('Script body — the actual shell script.'))
+                                    ]),
+                                    E('p', {}, _('Use "Install Failover-lite preset" for an MWAN3 substitute on low-RAM routers.')),
+                                    E('p', { 'style': 'color:#c00;' }, _('Scripts execute as root. Only run scripts you trust.'))
+                                ]),
+                                E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                                    E('button', { 'class': 'btn cbi-button cbi-button-action',
+                                        'click': function() {
+                                            document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                                if (m.parentNode) m.parentNode.removeChild(m);
+                                            });
+                                            document.body.classList.remove('modal-overlay-active');
+                                        } }, _('Close'))
+                                ])
+                            ]);
+                        } }, _('❔ Help'))
+                ]);
+                tableWrap.appendChild(addBar);
+
+                if (!scripts.length) {
+                    tableWrap.appendChild(E('p', { 'style': 'color:#888;padding:14px;' },
+                        _('No scripts yet.')));
+                    return;
+                }
+
+                var table = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+                table.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+                    E('th', { 'style': 'padding:8px;' }, _('Name')),
+                    E('th', { 'style': 'padding:8px;' }, _('Category')),
+                    E('th', { 'style': 'padding:8px;text-align:center;' }, _('Enabled')),
+                    E('th', { 'style': 'padding:8px;text-align:right;' }, _('Size')),
+                    E('th', { 'style': 'padding:8px;text-align:right;' }, _('Actions'))
+                ]));
+
+                scripts.forEach(function(s) {
+                    var sid = s.sid;
+                    var en = String(s.enabled) === '1';
+                    var toggle = E('input', { 'type': 'checkbox' });
+                    if (en) toggle.checked = true;
+                    toggle.addEventListener('change', function(ev) {
+                        uci.load('quickactions').then(function() {
+                            uci.set('quickactions', sid, 'enabled', ev.target.checked ? '1' : '0');
+                            return uci.save();
+                        }).then(function() {
+                            ui.addNotification(null, E('p', {}, _('Saved to memory.')), 'info');
+                            self.refreshPendingCount();
+                        });
+                    });
+
+                    var row = E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.06);' }, [
+                        E('td', { 'style': 'padding:8px;' }, [
+                            E('strong', {}, catIcon(s.category || 'custom') + ' ' + (s.name || sid)),
+                            E('br'),
+                            E('code', { 'style': 'font-size:0.78em;color:#888;word-break:break-all;' },
+                              s.path || ('/etc/quickactions/scripts/' + sid + '.sh'))
+                        ]),
+                        E('td', { 'style': 'padding:8px;font-size:0.9em;' }, s.category || 'custom'),
+                        E('td', { 'style': 'padding:8px;text-align:center;' }, toggle),
+                        E('td', { 'style': 'padding:8px;text-align:right;font-size:0.85em;color:#888;' },
+                          (s.size || 0) + ' B'),
+                        E('td', { 'style': 'padding:8px;text-align:right;' }, [
+                            E('button', { 'class': 'btn cbi-button',
+                                'style': 'padding:2px 10px;font-size:0.85em;margin-right:4px;',
+                                'click': function() { openDetail(sid); } }, _('Info')),
+                            E('button', { 'class': 'btn cbi-button',
+                                'style': 'padding:2px 10px;font-size:0.85em;margin-right:4px;',
+                                'click': function() { openEditor(sid); } }, _('Edit')),
+                            E('button', { 'class': 'btn cbi-button cbi-button-action',
+                                'style': 'padding:2px 10px;font-size:0.85em;margin-right:4px;',
+                                'click': function() { runScript(sid, s.name); } }, _('Run')),
+                            E('button', { 'class': 'btn cbi-button cbi-button-negative',
+                                'style': 'padding:2px 10px;font-size:0.85em;',
+                                'click': function() { deleteScript(sid, s.name); } }, _('Delete'))
+                        ])
+                    ]);
+                    table.appendChild(row);
+                });
+
+                tableWrap.appendChild(table);
+            }).catch(function(err) {
+                tableWrap.innerHTML = '';
+                tableWrap.appendChild(E('div', { 'class': 'alert-message error',
+                    'style': 'padding:12px;' }, 'List failed: ' + (err.message || err)));
+            });
+        }
+
+        // ---- Editor modal ----
+        function openEditor(sid) {
+            var isNew = !sid;
+
+            function build(fields) {
+                var inputs = {
+                    name: E('input', { 'type': 'text', 'value': fields.name || '',
+                        'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' }),
+                    category: (function() {
+                        var s = E('select', { 'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+                        [['failover','Failover'],['network','Network'],['system','System'],
+                         ['iot','IoT'],['custom','Custom']].forEach(function(c) {
+                            var o = E('option', { 'value': c[0] }, c[1]);
+                            if (c[0] === (fields.category || 'custom')) o.selected = true;
+                            s.appendChild(o);
+                        });
+                        return s;
+                    })(),
+                    timeout: E('input', { 'type': 'text', 'value': fields.timeout || '60',
+                        'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' }),
+                    args: E('input', { 'type': 'text', 'value': fields.args || '',
+                        'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' }),
+                    content: E('textarea', { 'spellcheck': 'false',
+                        'style': 'width:100%;min-height:320px;font-family:monospace;font-size:0.9em;padding:8px;' },
+                        fields.content || '#!/bin/sh\n\n# Write your script here\n')
+                };
+
+                var body = E('div', {}, [
+                    E('div', { 'style': 'margin-bottom:10px;' }, [
+                        E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Name *')),
+                        inputs.name
+                    ]),
+                    E('div', { 'style': 'display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;' }, [
+                        E('div', { 'style': 'flex:1 1 200px;' }, [
+                            E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Category')),
+                            inputs.category
+                        ]),
+                        E('div', { 'style': 'flex:1 1 200px;' }, [
+                            E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Timeout (s)')),
+                            inputs.timeout
+                        ])
+                    ]),
+                    E('div', { 'style': 'margin-bottom:10px;' }, [
+                        E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Arguments (space-separated)')),
+                        inputs.args
+                    ]),
+                    E('div', { 'style': 'margin-bottom:10px;' }, [
+                        E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Script body *')),
+                        inputs.content
+                    ])
+                ]);
+
+                var saveBtn = E('button', {
+                    'class': 'btn cbi-button',
+                    'style': 'background-color:#28a745 !important;background:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;'
+                }, _('Save'));
+                saveBtn.addEventListener('click', function() {
+                    var n = inputs.name.value.trim();
+                    var c = inputs.content.value;
+                    if (!n) { ui.addNotification(null, E('p', {}, 'Name required'), 'danger'); return; }
+                    if (!c) { ui.addNotification(null, E('p', {}, 'Script body required'), 'danger'); return; }
+                    var payload = {
+                        sid: sid || '',
+                        name: n,
+                        category: inputs.category.value,
+                        content: c,
+                        args: inputs.args.value,
+                        timeout: inputs.timeout.value || '60',
+                        enabled: '1'
+                    };
+                    rpcWrite(
+                        payload.sid, payload.name, payload.category, payload.content,
+                        payload.args, payload.timeout, payload.enabled
+                    ).then(function(res) {
+                        ui.addNotification(null, E('p', {}, _('Saved')), 'info');
+                        document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                            if (m.parentNode) m.parentNode.removeChild(m);
+                        });
+                        document.body.classList.remove('modal-overlay-active');
+                        uci.load('quickactions').then(function() {
+                            self.refreshPendingCount();
+                            refreshTable();
+                        });
+                    }).catch(function(err) {
+                        ui.addNotification(null, E('p', {}, 'Save failed: ' + (err.message || err)), 'danger');
+                    });
+                });
+                var cancelBtn = E('button', { 'class': 'btn cbi-button',
+                    'style': 'margin-right:8px;',
+                    'click': function() {
+                        document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                            if (m.parentNode) m.parentNode.removeChild(m);
+                        });
+                        document.body.classList.remove('modal-overlay-active');
+                    }
+                }, _('Cancel'));
+
+                ui.showModal(_(isNew ? 'Create script' : ('Edit: ' + (fields.name || sid))), [
+                    body,
+                    E('div', { 'style': 'margin-top:14px;text-align:right;' }, [cancelBtn, saveBtn])
+                ]);
+            }
+
+            if (isNew) {
+                build({});
+            } else {
+                rpcRead(sid).then(function(r) {
+                    return rpcDetail(sid).then(function(d) {
+                        build({
+                            name: d.name || sid,
+                            category: d.category || 'custom',
+                            timeout: d.timeout || '60',
+                            args: d.args || '',
+                            content: r.content || ''
+                        });
+                    });
+                }).catch(function(err) {
+                    ui.addNotification(null, E('p', {}, 'Load failed: ' + (err.message || err)), 'danger');
+                });
+            }
+        }
+
+        function openDetail(sid) {
+            rpcDetail(sid).then(function(d) {
+                ui.showModal(_('Script detail: ' + (d.name || sid)), [
+                    E('div', { 'style': 'line-height:1.7;font-size:0.92em;' }, [
+                        E('div', {}, [E('strong', {}, _('Name: ')), d.name || '—']),
+                        E('div', {}, [E('strong', {}, _('Category: ')), d.category || '—']),
+                        E('div', {}, [E('strong', {}, _('Path: ')), E('code', {}, d.path || '')]),
+                        E('div', {}, [E('strong', {}, _('Enabled: ')), d.enabled === '1' ? 'yes' : 'no']),
+                        E('div', {}, [E('strong', {}, _('Timeout: ')), d.timeout || '—']),
+                        E('div', {}, [E('strong', {}, _('Arguments: ')), d.args || '—']),
+                        E('div', {}, [E('strong', {}, _('Size: ')), (d.size || 0) + ' B']),
+                        E('div', {}, [E('strong', {}, _('Permissions: ')), E('code', {}, d.permissions || '—')])
+                    ]),
+                    E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                        E('button', { 'class': 'btn cbi-button', 'style': 'margin-right:8px;',
+                            'click': function() {
+                                rpcChmod(sid, '755').then(function() {
+                                    ui.addNotification(null, E('p', {}, 'chmod 755 ok'), 'info');
+                                });
+                            } }, _('Make executable')),
+                        E('button', { 'class': 'btn cbi-button cbi-button-action',
+                            'click': function() {
+                                document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                    if (m.parentNode) m.parentNode.removeChild(m);
+                                });
+                                document.body.classList.remove('modal-overlay-active');
+                            } }, _('Close'))
+                    ])
+                ]);
+            });
+        }
+
+        function runScript(sid, name) {
+            ui.addNotification(null, E('p', {}, _('Running ' + name + '...')), 'info');
+            rpcRun(sid).then(function(r) {
+                var out = (r && r.output) ? r.output : '(no output)';
+                var rc = (r && r.exit_code != null) ? r.exit_code : '?';
+                var dur = (r && r.duration != null) ? r.duration + 's' : '';
+                ui.addNotification(
+                    E('strong', {}, name + ' · exit ' + rc + (dur ? ' · ' + dur : '')),
+                    E('pre', { 'style': 'text-align:left;white-space:pre-wrap;max-height:60vh;overflow:auto;background:#111;color:#0f0;padding:12px;border-radius:4px;font-size:0.85em;' }, out),
+                    rc === 0 ? 'info' : 'warning'
+                );
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Run failed: ' + (err.message || err)), 'danger');
+            });
+        }
+
+        function deleteScript(sid, name) {
+            if (!confirm(_('Delete script "' + name + '"? Removes file and UCI entry.'))) return;
+            rpcDelete(sid).then(function() {
+                ui.addNotification(null, E('p', {}, 'Deleted'), 'info');
+                uci.load('quickactions').then(refreshTable);
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Delete failed: ' + (err.message || err)), 'danger');
+            });
+        }
+
+        refreshTable();
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, _('Scripts')),
+            E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:0.9em;' }, [
+                E('strong', {}, _('Scripts ')),
+                _('— create, edit, run, and manage shell scripts. Files live in '),
+                E('code', {}, '/etc/quickactions/scripts/'),
+                _('. Metadata in '),
+                E('code', {}, '/etc/config/quickactions'),
+                _('.')
+            ]),
+            tableWrap
+        ]);
+    },
+
+    // ============ VLAN tab ============
+    renderVlan: function() {
+        var self = this;
+
+        // Resolve tier (auto → based on detect; else honor uci override)
+        function resolvedTier(detect) {
+            var override = uci.get('quickactions', 'vlan', 'tier') || 'auto';
+            if (override === 'low' || override === 'high') return override;
+            var mb = parseInt(detect.mem_mb, 10) || 0;
+            return (mb >= 64) ? 'high' : 'low';
+        }
+
+        // ---------- top bar with subtab buttons ----------
+        var SUBTABS = [
+            { id: 'overview',    label: _('Overview') },
+            { id: 'wizard',      label: _('Wizard') },
+            { id: 'edit',        label: _('Edit') },
+            { id: 'library',     label: _('Library'),     tier: 'high' },
+            { id: 'ssid',        label: _('SSID') },
+            { id: 'import',      label: _('Import') },
+            { id: 'safety',      label: _('Safety') },
+            { id: 'diagnostics', label: _('Diagnostics'), tier: 'high' },
+            { id: 'guide',       label: _('Guide') }
+        ];
+
+        var subBar = E('div', {
+            'style': 'display:flex;gap:4px;border-bottom:2px solid rgba(0,0,0,0.08);' +
+                     'margin:0 0 16px 0;flex-wrap:wrap;'
+        });
+        var subContent = E('div');
+
+        var subButtons = {};
+        var tierResolved = null;
+
+        function paintSubTabButtons() {
+            SUBTABS.forEach(function(t) {
+                var b = subButtons[t.id];
+                if (!b) return;
+                var hidden = (t.tier === 'high' && tierResolved !== 'high');
+                b.style.display = hidden ? 'none' : '';
+                if (t.id === self.vlanActiveSubTab) {
+                    b.style.borderBottomColor = '#1e90ff';
+                    b.style.color = '#1e90ff';
+                    b.style.fontWeight = 'bold';
+                } else {
+                    b.style.borderBottomColor = 'transparent';
+                    b.style.color = '#666';
+                    b.style.fontWeight = '500';
+                }
+            });
+        }
+
+        SUBTABS.forEach(function(t) {
+            var b = E('div', {
+                'style': 'padding:8px 16px;cursor:pointer;border-bottom:3px solid transparent;' +
+                         'color:#666;font-weight:500;font-size:0.9em;user-select:none;',
+                'click': function() { self.vlanShowSub(t.id); }
+            }, t.label);
+            subButtons[t.id] = b;
+            subBar.appendChild(b);
+        });
+
+        // stash refs on the view for helper methods
+        self._vlanSubButtons = subButtons;
+        self._vlanSubContent = subContent;
+        self._vlanPaintSubTabButtons = paintSubTabButtons;
+        self._vlanResolvedTier = resolvedTier;
+
+        // initial subtab
+        self.vlanActiveSubTab = self.vlanActiveSubTab || 'overview';
+
+        // first-time detect (needed to know the tier)
+        self.callVlan('detect').then(function(detect) {
+            self._vlanDetect = detect;
+            tierResolved = resolvedTier(detect);
+            self.vlanTier = tierResolved;
+            paintSubTabButtons();
+            self.vlanShowSub(self.vlanActiveSubTab);
+        }).catch(function(err) {
+            subContent.innerHTML = '';
+            subContent.appendChild(E('div', {
+                'class': 'alert-message error',
+                'style': 'padding:16px;'
+            }, 'VLAN detect failed: ' + (err && err.message ? err.message : String(err))));
+        });
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, _('VLAN Management')),
+            E('p', { 'style': 'color:#888;font-size:0.9em;margin-top:-8px;' },
+                _('View, create, and edit VLANs on this router and generate matching configs for MikroTik, Cisco, and EdgeOS devices.')),
+            subBar,
+            subContent
+        ]);
+    },
+
+    // rpc shim for luci.quickactions-vlan
+    callVlan: function(method, p1, p2, p3, p4) {
+        var sigs = {
+            'detect': [],
+            'preview': ['plan'],
+            'apply': ['plan', 'safe'],
+            'snapshot': ['note'],
+            'list_snapshots': [],
+            'restore': ['path'],
+            'confirm': [],
+            'generate_cli': ['plan', 'target'],
+            'save_template': ['name', 'target', 'plan', 'notes'],
+            'list_templates': [],
+            'load_template': ['name'],
+            'delete_template': ['name'],
+            'save_generated': ['name', 'target', 'content'],
+            'list_generated': [],
+            'delete_generated': ['name'],
+            'lldp_neighbors': [],
+            'snmp_query': ['ip', 'community'],
+            'bridge_vlan_show': [],
+            'kernel_ifaces': [],
+            'iface_stats': ['ifaces'],
+            'ping_test': ['iface', 'ip']
+        };
+        var sig = sigs[method] || [];
+        var call = rpc.declare({
+            object: 'luci.quickactions-vlan',
+            method: method,
+            params: sig,
+            expect: { '': {} }
+        });
+        var args = [p1 || '', p2 || '', p3 || '', p4 || ''].slice(0, sig.length);
+        return call.apply(null, args);
+    },
+
+    // sub-tab dispatcher
+    vlanShowSub: function(id) {
+        var self = this;
+        self.vlanActiveSubTab = id;
+        if (self._vlanPaintSubTabButtons) self._vlanPaintSubTabButtons();
+        var subContent = self._vlanSubContent;
+        if (!subContent) return;
+        subContent.innerHTML = '';
+        subContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' },
+            _('Loading ') + id + _('...')));
+
+        var builder = {
+            overview:    'vlanRenderOverview',
+            wizard:      'vlanRenderWizard',
+            edit:        'vlanRenderEdit',
+            library:     'vlanRenderLibrary',
+            ssid:        'vlanRenderSsid',
+            import:      'vlanRenderImport',
+            safety:      'vlanRenderSafety',
+            diagnostics: 'vlanRenderDiagnostics',
+            guide:       'vlanRenderGuide'
+        }[id];
+
+        if (!builder || typeof self[builder] !== 'function') {
+            subContent.innerHTML = '';
+            subContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' },
+                _('This section is coming in a follow-up patch.')));
+            return;
+        }
+
+        Promise.resolve(self[builder]()).then(function(node) {
+            subContent.innerHTML = '';
+            if (node) subContent.appendChild(node);
+        }).catch(function(err) {
+            subContent.innerHTML = '';
+            subContent.appendChild(E('div', {
+                'class': 'alert-message error',
+                'style': 'padding:16px;'
+            }, 'Error: ' + (err && err.message ? err.message : String(err))));
+        });
+    },
+
+    // ---------- Overview ----------
+    vlanRenderOverview: function() {
+        var self = this;
+        var d = self._vlanDetect;
+        if (!d) return E('p', { 'style': 'color:#888;' }, _('Detection has not run yet.'));
+
+        function card(title, body) {
+            return E('div', {
+                'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);' +
+                         'border-radius:8px;padding:14px 16px;margin-bottom:16px;'
+            }, [
+                E('h4', { 'style': 'margin:0 0 10px 0;font-size:1em;' }, title),
+                body
+            ]);
+        }
+
+        function table(cols, rows) {
+            var t = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+            var hr = E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' });
+            cols.forEach(function(c) {
+                hr.appendChild(E('th', { 'style': 'padding:6px 8px;font-weight:600;' }, c));
+            });
+            t.appendChild(hr);
+            rows.forEach(function(r) {
+                var tr = E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' });
+                r.forEach(function(cell) {
+                    tr.appendChild(E('td', { 'style': 'padding:6px 8px;' },
+                        typeof cell === 'string' ? cell : cell));
+                });
+                t.appendChild(tr);
+            });
+            return t;
+        }
+
+        // Platform card
+        var currentTier = self.vlanTier || self._vlanResolvedTier(d);
+        var platformBody = E('div', {}, [
+            E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;' }, [
+                E('div', {}, [E('strong', {}, _('Mode: ')), d.mode === 'dsa' ? 'DSA (bridge VLAN filtering)' : (d.mode === 'swconfig' ? 'swconfig (legacy)' : 'unknown')]),
+                E('div', {}, [E('strong', {}, _('Kernel: ')), d.kernel || '—']),
+                E('div', {}, [E('strong', {}, _('Memory: ')), (d.mem_mb || '—') + ' MB']),
+                E('div', {}, [E('strong', {}, _('Hostname: ')), d.hostname || '—'])
+            ]),
+            E('div', { 'style': 'margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;' }, [
+                E('span', { 'style': 'font-size:0.9em;color:#666;' }, _('Resource mode: ')),
+                (function() {
+                    var override = uci.get('quickactions', 'vlan', 'tier') || 'auto';
+                    var wrap = E('div', { 'style': 'display:flex;gap:6px;' });
+                    [['auto','Auto'],['low','Low'],['high','High']].forEach(function(o) {
+                        var btn = E('button', {
+                            'class': 'btn cbi-button' + (override === o[0] ? ' cbi-button-action important' : ''),
+                            'style': 'padding:4px 12px;font-size:0.85em;',
+                            'click': function() {
+                                uci.load('quickactions').then(function() {
+                                    uci.set('quickactions', 'vlan', 'tier', o[0]);
+                                    return uci.save();
+                                }).then(function() {
+                                    ui.addNotification(null, E('p', {}, _('Tier saved. Reload the tab to apply.')), 'info');
+                                    self.refreshPendingCount();
+                                });
+                            }
+                        }, o[1]);
+                        wrap.appendChild(btn);
+                    });
+                    return wrap;
+                })(),
+                E('span', { 'style': 'font-size:0.85em;color:#888;' },
+                    _('Resolved: ') + (currentTier || '—').toUpperCase())
+            ])
+        ]);
+
+        // Bridges
+        var bridgeRows = (d.bridges || []).map(function(b) {
+            return [
+                b.name || b.sid,
+                b.vlan_filtering === '1' ? '✓' : '—',
+                (b.sid && b.sid.indexOf('@') === 0) ? _('anonymous') : b.sid
+            ];
+        });
+
+        // VLANs
+        var vlanRows = (d.bridge_vlans || []).map(function(v) {
+            return [v.device || '', v.vlan || '', v.ports || '', v.sid || ''];
+        });
+
+        // Interfaces
+        var ifaceRows = (d.interfaces || []).map(function(i) {
+            return [i.sid || '', i.device || '', i.proto || '', i.ipaddr || '', i.netmask || ''];
+        });
+
+        // DHCP
+        var dhcpRows = (d.dhcp || []).map(function(x) {
+            return [x.sid || '', x.interface || '', x.start || '', x.limit || ''];
+        });
+
+        // Zones
+        var zoneRows = (d.zones || []).map(function(z) {
+            return [z.name || '', z.network || '', z.input || '', z.output || '', z.forward || ''];
+        });
+
+        // Wifi
+        var wifiRows = (d.wifi || []).map(function(w) {
+            return [w.ssid || w.sid || '', w.device || '', w.mode || '', w.network || ''];
+        });
+
+        // Easymesh devices
+        var easymeshRows = (d.easymesh || []).map(function(x) { return [x]; });
+
+        var refreshRow = E('div', { 'style': 'margin-bottom:14px;' }, [
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'padding:6px 14px;',
+                'click': function() {
+                    self.callVlan('detect').then(function(dd) {
+                        self._vlanDetect = dd;
+                        self.vlanShowSub('overview');
+                    });
+                }
+            }, _('↻ Refresh'))
+        ]);
+
+        return E('div', {}, [
+            refreshRow,
+            card(_('Platform'), platformBody),
+            card(_('Bridges') + ' (' + (d.bridges || []).length + ')',
+                table([_('Name'), _('VLAN filtering'), _('Section')], bridgeRows.length ? bridgeRows :
+                    [[E('em', { 'style': 'color:#888;' }, _('(none)')), '', '']])),
+            card(_('VLANs') + ' (' + vlanRows.length + ')',
+                table([_('Device'), _('VLAN ID'), _('Ports'), _('Section')], vlanRows.length ? vlanRows :
+                    [[E('em', { 'style': 'color:#888;' }, _('(no bridge-vlan entries yet)')), '', '', '']])),
+            card(_('Interfaces') + ' (' + ifaceRows.length + ')',
+                table([_('Name'), _('Device'), _('Proto'), _('IP address'), _('Netmask')], ifaceRows)),
+            card(_('DHCP pools') + ' (' + dhcpRows.length + ')',
+                table([_('Section'), _('Interface'), _('Start'), _('Limit')], dhcpRows)),
+            card(_('Firewall zones') + ' (' + zoneRows.length + ')',
+                table([_('Name'), _('Networks'), _('Input'), _('Output'), _('Forward')], zoneRows)),
+            card(_('Wireless') + ' (' + wifiRows.length + ')',
+                table([_('SSID'), _('Radio'), _('Mode'), _('Attached network')], wifiRows)),
+            easymeshRows.length ? card(_('EasyMesh bat0 devices'),
+                table([_('Device')], easymeshRows)) : null
+        ].filter(Boolean));
+    },
+
+    // ---------- Guide ----------
+    vlanRenderGuide: function() {
+        function h4(t) { return E('h4', { 'style': 'margin:20px 0 8px 0;font-size:1.05em;color:#1e90ff;' }, t); }
+        function p(t) { return E('p', { 'style': 'margin:6px 0;line-height:1.6;font-size:0.92em;' }, t); }
+        function pre(t) { return E('pre', { 'style': 'background:#111;color:#0f0;padding:10px 12px;border-radius:4px;overflow-x:auto;font-size:0.85em;white-space:pre-wrap;' }, t); }
+        function li(t) { return E('li', { 'style': 'line-height:1.6;font-size:0.9em;' }, t); }
+        function box(children, color) {
+            return E('div', {
+                'style': 'background:rgba(' + (color || '30,144,255') + ',0.08);' +
+                         'border:1px solid rgba(' + (color || '30,144,255') + ',0.2);' +
+                         'border-radius:6px;padding:12px 16px;margin:12px 0;font-size:0.9em;'
+            }, children);
+        }
+
+        var guide = E('div', { 'style': 'line-height:1.6;' }, [
+            p(_('This tab lets you view, create, and edit VLANs on this router. It can also generate matching configs for external switches (MikroTik, Cisco, EdgeOS).')),
+
+            h4(_('📘 What is a VLAN?')),
+            p(_('A VLAN (Virtual Local Area Network) divides one physical LAN into multiple logical networks. Devices on the same switch can be isolated into separate groups — as if they were on entirely different networks.')),
+
+            h4(_('🛠️ Why use VLAN?')),
+            E('ul', { 'style': 'padding-left:22px;' }, [
+                li(_('Security: keep sensitive devices (printers, NAS) separate from guest traffic.')),
+                li(_('Traffic management: reduce broadcast traffic and improve speed.')),
+                li(_('Easy management: move a device without reconfiguring its network.')),
+                li(_('Cost efficiency: no extra switches or routers needed.'))
+            ]),
+
+            h4(_('🔍 First check: DSA or swconfig?')),
+            box([
+                E('strong', {}, _('Your router: ')),
+                p(_('Network → Interfaces → Devices with "Bridge VLAN filtering" = DSA (modern).')),
+                p(_('Network → Switch menu = swconfig (legacy).')),
+                p(_('OpenWrt 21.02+ typically uses DSA. Some single-port travel routers do not support VLAN filtering at all.'))
+            ]),
+
+            h4(_('📂 Types of VLAN')),
+            E('ul', { 'style': 'padding-left:22px;' }, [
+                li(_('Port-based: one port = one VLAN.')),
+                li(_('Tagged (802.1Q): one port carries multiple VLANs, each packet tagged.')),
+                li(_('MAC-based: VLAN membership decided by MAC address.')),
+                li(_('Protocol-based: VLAN membership decided by packet protocol.'))
+            ]),
+
+            h4(_('💻 OpenWrt DSA quick example — VLAN 20 for a Guest network')),
+            box([
+                E('strong', { 'style': 'color:#c00;' }, _('⚠️ Connect via a LAN port you will NOT modify. Never apply VLAN changes over Wi-Fi or over the port you are changing. You will lock yourself out.'))
+            ], '220,53,69'),
+            p(_('Step 1 — Enable VLAN filtering on the bridge:')),
+            pre('Network → Interfaces → Devices → br-lan → Configure → Bridge VLAN filtering → Enable'),
+            p(_('Step 2 — Add VLAN 20: pick ports, mark them tagged or untagged.')),
+            p(_('Step 3 — Create the interface (protocol static, IP 192.168.20.1/24, device br-lan.20).')),
+            p(_('Step 4 — Create the firewall zone, then click Save & Apply.')),
+            p(_('Use the Wizard subtab above to do all four steps in one flow.')),
+
+            h4(_('📶 Tagging a Wi-Fi SSID to a VLAN')),
+            p(_('You do not tag the SSID directly — you attach the wireless interface to the VLAN\'s logical network.')),
+            p(_('Use the SSID subtab above: pick the SSID, pick the VLAN interface, save.')),
+
+            h4(_('🛡️ Client Isolation')),
+            p(_('Blocks guests from reaching each other on the same SSID. Enable "Isolate clients" in the wireless advanced settings, or use the SSID subtab in this tab.')),
+
+            h4(_('📖 Term definitions')),
+            E('ul', { 'style': 'padding-left:22px;' }, [
+                li([E('strong', {}, _('VLAN ID: ')), _('number 1–4094. Avoid 0, 1, 4095.')]),
+                li([E('strong', {}, _('Access port: ')), _('a port dedicated to one VLAN.')]),
+                li([E('strong', {}, _('Trunk port: ')), _('a port carrying multiple VLANs (tagged).')]),
+                li([E('strong', {}, _('Tagged packet: ')), _('carries a VLAN tag identifying its network.')])
+            ]),
+
+            h4(_('🪵 Inter-VLAN Routing (Router-on-a-Stick)')),
+            p(_('The router is the gateway between VLANs. Traffic between them goes through the firewall zone forwarding rules.')),
+
+            h4(_('🔥 Zone Forwarding')),
+            p(_('Allow LAN → Guest (one-way): Network → Firewall → Zones → lan → Allow forward to guest_zone.')),
+            box([
+                E('strong', { 'style': 'color:#c00;' }, _('⚠️ Never enable Guest → LAN. That defeats the isolation.'))
+            ], '220,53,69'),
+
+            h4(_('🛟 Anti-lockout & rollback')),
+            p(_('The Safety subtab above takes snapshots and supports a 90-second auto-rollback after every apply.')),
+            p(_('Manual restore:')),
+            pre('cp /etc/quickactions/vlan/network.bak.<ts> /etc/config/network\n/etc/init.d/network reload'),
+
+            h4(_('🌐 Cross-platform notes')),
+            p(_('DSA bridge-vlan → MikroTik /interface bridge vlan add bridge=... vlan-ids=N tagged=... untagged=...')),
+            p(_('Cisco: switchport trunk allowed vlan 10,20 ; switchport trunk native vlan 1')),
+            p(_('EdgeOS: set interfaces ethernet ethN vif <id> address <ip>')),
+
+            box([
+                E('strong', {}, _('Generated CLI examples ')),
+                _('are available in the Wizard subtab once you build a plan and pick a target platform.')
+            ])
+        ]);
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, _('VLAN Guide')),
+            guide
+        ]);
+    },
+
+    // ---------- Wizard ----------
+    vlanRenderWizard: function() {
+        var self = this;
+        var d = self._vlanDetect || {};
+        var ifaces = d.interfaces || [];
+        var bridges = d.bridges || [];
+
+        // Collect all physical ports from UCI network.device (non-bridge) + interface devices
+        function collectPorts() {
+            var ports = {};
+            // bridge members
+            (uci.sections('network', 'device') || []).forEach(function(dev) {
+                if (dev.type === 'bridge') {
+                    var p = dev.ports;
+                    if (typeof p === 'string') p = p.split(/\s+/);
+                    if (Array.isArray(p)) p.forEach(function(x) { if (x) ports[x] = 1; });
+                } else if (dev.name) {
+                    ports[dev.name] = 1;
+                }
+            });
+            // interface devices
+            ifaces.forEach(function(i) {
+                if (i.device && i.device.indexOf('@') !== 0) ports[i.device] = 1;
+            });
+            // physical /sys/class/net
+            return Object.keys(ports).sort();
+        }
+        var allPorts = collectPorts();
+
+        // ---- Step state ----
+        var state = {
+            target:    'openwrt-dsa',
+            vlanId:    '20',
+            bridge:    (bridges[0] && bridges[0].name) || 'br-lan',
+            newBridge: '',
+            ports:     {},   // {port: 'off'|'u'|'t'}
+            ifaceOn:   true,
+            ifaceName: 'GUEST',
+            ifaceProto:'static',
+            ifaceIp:   '192.168.20.1',
+            ifaceMask: '255.255.255.0',
+            dhcpOn:    true,
+            dhcpStart: '100',
+            dhcpLimit: '150',
+            dhcpLease: '12h',
+            zoneOn:    true,
+            zoneName:  'guest_zone',
+            zoneInput: 'REJECT',
+            zoneOutput:'ACCEPT',
+            zoneForward:'REJECT',
+            zoneMasq:  false,
+            zoneForwardTo: 'wan',
+            ssidOn:    false,
+            ssidNew:   true,
+            ssidName:  'GUEST-WiFi',
+            ssidEnc:   'psk2',
+            ssidPass:  '',
+            ssidPick:  ''
+        };
+
+        allPorts.forEach(function(p) { state.ports[p] = 'off'; });
+
+        // ---- Simple field helpers ----
+        function field(label, el, hint) {
+            return E('div', { 'style': 'margin-bottom:12px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;font-weight:500;' }, label),
+                el,
+                hint ? E('div', { 'style': 'font-size:0.8em;color:#888;margin-top:3px;' }, hint) : null
+            ]);
+        }
+        function txtInput(v, ph) {
+            return E('input', { 'type': 'text', 'value': v || '', 'placeholder': ph || '',
+                'style': 'width:100%;max-width:400px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;' });
+        }
+        function numInput(v, min, max) {
+            return E('input', { 'type': 'number', 'value': v, 'min': min, 'max': max,
+                'style': 'width:100%;max-width:200px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;' });
+        }
+        function select(opts, val) {
+            var s = E('select', { 'style': 'width:100%;max-width:400px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;' });
+            opts.forEach(function(o) {
+                var opt = E('option', { 'value': o[0] }, o[1]);
+                if (o[0] === val) opt.selected = true;
+                s.appendChild(opt);
+            });
+            return s;
+        }
+        function check(label, checked, hint) {
+            var cb = E('input', { 'type': 'checkbox' });
+            if (checked) cb.checked = true;
+            return E('div', { 'style': 'margin-bottom:10px;display:flex;align-items:flex-start;gap:10px;' }, [
+                cb,
+                E('div', {}, [
+                    E('label', { 'style': 'font-size:0.95em;font-weight:500;' }, label),
+                    hint ? E('div', { 'style': 'font-size:0.8em;color:#888;margin-top:2px;' }, hint) : null
+                ])
+            ]);
+        }
+
+        // ---- Step 0: Target platform ----
+        var targetSel = select([
+            ['openwrt-dsa',     'OpenWrt DSA (this router)'],
+            ['openwrt-swconfig','OpenWrt swconfig (this router)'],
+            ['mikrotik',        'MikroTik RouterOS 6/7 (generate CLI)'],
+            ['cisco',           'Cisco IOS / NX-OS (generate CLI)'],
+            ['edgeos',          'EdgeOS / EdgeSwitch (generate CLI)'],
+            ['generic',         'Generic 802.1Q (table + JSON)']
+        ], state.target);
+        targetSel.addEventListener('change', function() { state.target = targetSel.value; });
+
+        // ---- Step 1: VLAN ID + parent bridge ----
+        var vidEl = numInput(state.vlanId, 2, 4094);
+        vidEl.addEventListener('input', function() { state.vlanId = vidEl.value; });
+
+        var bridgeSel = select(bridges.map(function(b) { return [b.name, b.name]; }).concat([['__new__', 'Create new bridge...']]), state.bridge);
+        bridgeSel.addEventListener('change', function() { state.bridge = bridgeSel.value; });
+        var newBridgeEl = txtInput('', 'br-vlan');
+        newBridgeEl.addEventListener('input', function() { state.newBridge = newBridgeEl.value; });
+
+        // ---- Step 2: Ports ----
+        var portRows = [];
+        function rebuildPortTable() {
+            portRows = allPorts.map(function(p) {
+                var sel = E('select', { 'style': 'width:120px;padding:4px 8px;border:1px solid #ccc;border-radius:4px;' });
+                [['off','— off'],['u','Untagged'],['t','Tagged']].forEach(function(o) {
+                    var opt = E('option', { 'value': o[0] }, o[1]);
+                    if (o[0] === state.ports[p]) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                sel.addEventListener('change', function() { state.ports[p] = sel.value; });
+                return E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' }, [
+                    E('td', { 'style': 'padding:4px 8px;font-family:monospace;' }, p),
+                    E('td', { 'style': 'padding:4px 8px;' }, sel)
+                ]);
+            });
+            var t = E('table', { 'style': 'border-collapse:collapse;' });
+            t.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+                E('th', { 'style': 'padding:6px 8px;' }, _('Port')),
+                E('th', { 'style': 'padding:6px 8px;' }, _('Mode'))
+            ]));
+            portRows.forEach(function(r) { t.appendChild(r); });
+            return t;
+        }
+
+        // ---- Step 3: Interface ----
+        var ifNameEl = txtInput(state.ifaceName);
+        ifNameEl.addEventListener('input', function() { state.ifaceName = ifNameEl.value; });
+        var ifProtoSel = select([['static','Static'],['dhcp','DHCP'],['none','None']], state.ifaceProto);
+        ifProtoSel.addEventListener('change', function() { state.ifaceProto = ifProtoSel.value; });
+        var ifIpEl = txtInput(state.ifaceIp);
+        ifIpEl.addEventListener('input', function() { state.ifaceIp = ifIpEl.value; });
+        var ifMaskEl = txtInput(state.ifaceMask);
+        ifMaskEl.addEventListener('input', function() { state.ifaceMask = ifMaskEl.value; });
+
+        // ---- Step 4: DHCP ----
+        var dhStartEl = numInput(state.dhcpStart, 1, 250);
+        dhStartEl.addEventListener('input', function() { state.dhcpStart = dhStartEl.value; });
+        var dhLimitEl = numInput(state.dhcpLimit, 1, 250);
+        dhLimitEl.addEventListener('input', function() { state.dhcpLimit = dhLimitEl.value; });
+        var dhLeaseEl = txtInput(state.dhcpLease, '12h');
+        dhLeaseEl.addEventListener('input', function() { state.dhcpLease = dhLeaseEl.value; });
+
+        // ---- Step 5: Firewall zone ----
+        var zNameEl = txtInput(state.zoneName);
+        zNameEl.addEventListener('input', function() { state.zoneName = zNameEl.value; });
+        var zInSel = select([['REJECT','REJECT'],['ACCEPT','ACCEPT'],['DROP','DROP']], state.zoneInput);
+        zInSel.addEventListener('change', function() { state.zoneInput = zInSel.value; });
+        var zOutSel = select([['ACCEPT','ACCEPT'],['REJECT','REJECT'],['DROP','DROP']], state.zoneOutput);
+        zOutSel.addEventListener('change', function() { state.zoneOutput = zOutSel.value; });
+        var zFwdSel = select([['REJECT','REJECT'],['ACCEPT','ACCEPT'],['DROP','DROP']], state.zoneForward);
+        zFwdSel.addEventListener('change', function() { state.zoneForward = zFwdSel.value; });
+        var zDestSel = select(
+            (d.zones || []).map(function(z) { return [z.name, z.name]; }),
+            state.zoneForwardTo
+        );
+        zDestSel.addEventListener('change', function() { state.zoneForwardTo = zDestSel.value; });
+
+        // ---- Step 6: SSID attach ----
+        var ssidPickSel = select(
+            (d.wifi || []).map(function(w) { return [w.sid, (w.ssid || w.sid) + ' (' + w.device + ')']; }),
+            state.ssidPick
+        );
+        ssidPickSel.addEventListener('change', function() { state.ssidPick = ssidPickSel.value; });
+        var ssidNameEl = txtInput(state.ssidName);
+        ssidNameEl.addEventListener('input', function() { state.ssidName = ssidNameEl.value; });
+        var ssidEncSel = select([['psk2','WPA2-PSK'],['sae','WPA3-SAE'],['sae-mixed','WPA2/WPA3'],['none','Open']], state.ssidEnc);
+        ssidEncSel.addEventListener('change', function() { state.ssidEnc = ssidEncSel.value; });
+        var ssidPassEl = txtInput(state.ssidPass, 'min 8 chars');
+        ssidPassEl.addEventListener('input', function() { state.ssidPass = ssidPassEl.value; });
+
+        // ---- Build plan object ----
+        function buildPlan() {
+            var tagged = [], untagged = [];
+            Object.keys(state.ports).forEach(function(p) {
+                if (state.ports[p] === 't') tagged.push(p);
+                else if (state.ports[p] === 'u') untagged.push(p);
+            });
+            var bridge = (state.bridge === '__new__') ? (state.newBridge || 'br-vlan') : state.bridge;
+            var plan = {
+                vlans: [{
+                    sid: 'vlan' + state.vlanId,
+                    bridge: bridge,
+                    vlan: state.vlanId,
+                    tagged: tagged,
+                    untagged: untagged,
+                    purpose: ''
+                }]
+            };
+            if (state.ifaceOn) {
+                plan.interfaces = [{
+                    name: state.ifaceName,
+                    device: bridge + '.' + state.vlanId,
+                    proto: state.ifaceProto,
+                    ipaddr: state.ifaceIp,
+                    netmask: state.ifaceMask
+                }];
+            }
+            if (state.dhcpOn) {
+                plan.dhcp = [{
+                    name: state.ifaceName,
+                    interface: state.ifaceName,
+                    start: state.dhcpStart,
+                    limit: state.dhcpLimit,
+                    leasetime: state.dhcpLease
+                }];
+            }
+            if (state.zoneOn) {
+                plan.zones = [{
+                    name: state.zoneName,
+                    network: [state.ifaceName],
+                    input: state.zoneInput,
+                    output: state.zoneOutput,
+                    forward: state.zoneForward,
+                    masq: state.zoneMasq ? '1' : '0',
+                    forward_to: state.zoneForwardTo
+                }];
+            }
+            if (state.ssidOn && !state.ssidNew && state.ssidPick) {
+                plan.attach_wifi = [{ sid: state.ssidPick, network: state.ifaceName }];
+            }
+            return plan;
+        }
+
+        // ---- Preview + Apply ----
+        var previewOut = E('pre', {
+            'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;' +
+                     'font-size:0.85em;white-space:pre-wrap;max-height:300px;overflow:auto;' +
+                     'margin:0;display:none;'
+        });
+
+        function updatePreview() {
+            var plan = buildPlan();
+            previewOut.style.display = 'block';
+            previewOut.textContent = JSON.stringify(plan, null, 2);
+        }
+
+        var previewBtn = E('button', { 'class': 'btn cbi-button',
+            'style': 'padding:8px 18px;',
+            'click': updatePreview }, _('Preview plan'));
+
+        var applyBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background:#28a745 !important;background-color:#28a745 !important;' +
+                     'color:#fff !important;padding:8px 22px;font-weight:bold;border:none;' +
+                     'border-radius:4px;cursor:pointer;margin-left:8px;'
+        }, _('Apply to this router'));
+        applyBtn.addEventListener('click', function() {
+            var plan = buildPlan();
+            if (!confirm(_('Apply this VLAN plan to the router?\n\nA snapshot will be taken first. Network will reload.'))) return;
+            self.callVlan('apply', JSON.stringify(plan), '0').then(function(r) {
+                if (r && r.error) {
+                    ui.addNotification(null, E('p', {}, 'Apply failed: ' + r.error), 'danger');
+                    return;
+                }
+                ui.addNotification(null,
+                    E('p', {}, _('VLAN applied. Network reloaded.')),
+                    'info');
+                self.vlanShowSub('overview');
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Apply failed: ' + (err.message || err)), 'danger');
+            });
+        });
+
+        var applySafeBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background:#dc3545 !important;background-color:#dc3545 !important;' +
+                     'color:#fff !important;padding:8px 22px;font-weight:bold;border:none;' +
+                     'border-radius:4px;cursor:pointer;margin-left:8px;'
+        }, _('Apply with 90s rollback'));
+        applySafeBtn.addEventListener('click', function() {
+            var plan = buildPlan();
+            if (!confirm(_('Apply with 90-second rollback?\n\nIf you lose access, the network will auto-restore after 90 seconds.'))) return;
+            self.callVlan('apply', JSON.stringify(plan), '1').then(function(r) {
+                if (r && r.error) {
+                    ui.addNotification(null, E('p', {}, 'Apply failed: ' + r.error), 'danger');
+                    return;
+                }
+                ui.addNotification(null,
+                    E('p', {}, _('Applied with rollback in 90s. Click Confirm in Safety subtab to keep.')),
+                    'warning');
+                self.vlanShowSub('overview');
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Apply failed: ' + (err.message || err)), 'danger');
+            });
+        });
+
+        var genBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background:#17a2b8 !important;background-color:#17a2b8 !important;' +
+                     'color:#fff !important;padding:8px 22px;font-weight:bold;border:none;' +
+                     'border-radius:4px;cursor:pointer;margin-left:8px;'
+        }, _('Generate CLI for selected target'));
+        genBtn.addEventListener('click', function() {
+            var plan = buildPlan();
+            var target = (state.target === 'openwrt-dsa' || state.target === 'openwrt-swconfig') ? 'generic' : state.target;
+            self.callVlan('generate_cli', JSON.stringify(plan), target).then(function(r) {
+                if (r && r.cli) {
+                    ui.showModal(_('Generated CLI for ') + target, [
+                        E('pre', {
+                            'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;' +
+                                     'font-size:0.85em;white-space:pre-wrap;max-height:60vh;overflow:auto;width:100%;' +
+                                     'box-sizing:border-box;'
+                        }, r.cli),
+                        E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                            E('button', { 'class': 'btn cbi-button', 'style': 'margin-right:8px;',
+                                'click': function() {
+                                    navigator.clipboard && navigator.clipboard.writeText(r.cli);
+                                    ui.addNotification(null, E('p', {}, _('Copied to clipboard.')), 'info');
+                                } }, _('Copy')),
+                            E('button', { 'class': 'btn cbi-button cbi-button-action',
+                                'click': function() {
+                                    document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                        if (m.parentNode) m.parentNode.removeChild(m);
+                                    });
+                                    document.body.classList.remove('modal-overlay-active');
+                                } }, _('Close'))
+                        ])
+                    ]);
+                }
+            });
+        });
+
+        // ---- Render ----
+        var step = function(title, body) {
+            return E('div', {
+                'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);' +
+                         'border-radius:8px;padding:14px 18px;margin-bottom:14px;'
+            }, [
+                E('h4', { 'style': 'margin:0 0 12px 0;font-size:1.02em;color:#1e90ff;' }, title),
+                body
+            ]);
+        };
+
+        var warn = E('div', {
+            'style': 'background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.3);' +
+                     'border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:0.9em;'
+        }, [
+            E('strong', { 'style': 'color:#c00;' }, _('⚠️ Connect via a LAN port you will NOT modify. ')),
+            _('Never apply VLAN changes over Wi-Fi or over the port you are changing.')
+        ]);
+
+        return E('div', {}, [
+            warn,
+            step(_('Step 0 — Target platform'), field(_('Target'), targetSel,
+                _('Choose "this router" to apply directly. Other targets generate a CLI script to paste into the external device.'))),
+            step(_('Step 1 — VLAN ID and parent bridge'), E('div', {}, [
+                field(_('VLAN ID (2–4094)'), vidEl, _('Avoid VLAN 0, 1 and 4095.')),
+                field(_('Parent bridge'), bridgeSel),
+                (state.bridge === '__new__') ? field(_('New bridge name'), newBridgeEl) : null
+            ].filter(Boolean))),
+            step(_('Step 2 — Port assignment'), E('div', {}, [
+                E('p', { 'style': 'font-size:0.88em;color:#888;margin:0 0 10px 0;' },
+                    _('Choose per-port mode. Leave ports on "off" if unused.')),
+                rebuildPortTable()
+            ])),
+            step(_('Step 3 — Logical interface'), E('div', {}, [
+                check(_('Create logical interface'), state.ifaceOn),
+                field(_('Interface name'), ifNameEl),
+                field(_('Protocol'), ifProtoSel),
+                field(_('IP address'), ifIpEl),
+                field(_('Netmask'), ifMaskEl)
+            ])),
+            step(_('Step 4 — DHCP server'), E('div', {}, [
+                check(_('Create DHCP pool'), state.dhcpOn),
+                field(_('Start offset'), dhStartEl),
+                field(_('Client limit'), dhLimitEl),
+                field(_('Lease time'), dhLeaseEl)
+            ])),
+            step(_('Step 5 — Firewall zone'), E('div', {}, [
+                check(_('Create / update firewall zone'), state.zoneOn),
+                field(_('Zone name'), zNameEl),
+                field(_('Input'), zInSel),
+                field(_('Output'), zOutSel),
+                field(_('Forward'), zFwdSel),
+                field(_('Forward to zone'), zDestSel)
+            ])),
+            step(_('Step 6 — Attach SSID (optional)'), E('div', {}, [
+                check(_('Attach an existing SSID to this VLAN interface'), state.ssidOn),
+                state.ssidOn ? E('div', {}, [
+                    field(_('Existing SSID'), ssidPickSel)
+                ]) : null
+            ].filter(Boolean))),
+            E('div', { 'style': 'margin-top:18px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;' }, [
+                previewBtn, applyBtn, applySafeBtn, genBtn
+            ]),
+            E('div', { 'style': 'margin-top:14px;' }, [previewOut])
+        ]);
+    },
+
+    // ---------- Edit ----------
+    vlanRenderEdit: function() {
+        var self = this;
+        var d = self._vlanDetect || {};
+
+        function table(cols, rows, editFn) {
+            var t = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+            var hr = E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' });
+            cols.forEach(function(c) { hr.appendChild(E('th', { 'style': 'padding:6px 8px;' }, c)); });
+            if (editFn) hr.appendChild(E('th', { 'style': 'padding:6px 8px;text-align:right;' }, _('')));
+            t.appendChild(hr);
+            rows.forEach(function(r) {
+                var tr = E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' });
+                r.forEach(function(cell) {
+                    tr.appendChild(E('td', { 'style': 'padding:6px 8px;' }, cell));
+                });
+                if (editFn) {
+                    tr.appendChild(E('td', { 'style': 'padding:6px 8px;text-align:right;' },
+                        E('button', {
+                            'class': 'btn cbi-button',
+                            'style': 'padding:2px 10px;font-size:0.85em;',
+                            'click': function() { editFn(r); }
+                        }, _('Edit'))));
+                }
+                t.appendChild(tr);
+            });
+            return t;
+        }
+
+        function card(title, body) {
+            return E('div', {
+                'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);' +
+                         'border-radius:8px;padding:14px 16px;margin-bottom:16px;'
+            }, [E('h4', { 'style': 'margin:0 0 10px 0;font-size:1em;' }, title), body]);
+        }
+
+        // Bridge VLAN editor
+        var vlanRows = (d.bridge_vlans || []).map(function(v) {
+            return [v.device || '', v.vlan || '', v.ports || '', v.sid || ''];
+        });
+
+        function editVlan(row) {
+            var sid = row[3];
+            var devEl = E('input', { 'type': 'text', 'value': row[0],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            var vidEl = E('input', { 'type': 'text', 'value': row[1],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            var portsEl = E('input', { 'type': 'text', 'value': row[2],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-family:monospace;' });
+            ui.showModal(_('Edit VLAN ' + sid), [
+                E('div', { 'style': 'margin-bottom:10px;' }, [
+                    E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Device')),
+                    devEl
+                ]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [
+                    E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('VLAN ID')),
+                    vidEl
+                ]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [
+                    E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Ports (space-separated, use :t for tagged)')),
+                    portsEl
+                ]),
+                E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                    E('button', { 'class': 'btn cbi-button', 'style': 'margin-right:8px;',
+                        'click': function() {
+                            document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                if (m.parentNode) m.parentNode.removeChild(m);
+                            });
+                            document.body.classList.remove('modal-overlay-active');
+                        } }, _('Cancel')),
+                    (function() {
+                        var b = E('button', { 'class': 'btn cbi-button',
+                            'style': 'background:#28a745 !important;background-color:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;' }, _('Save'));
+                        b.addEventListener('click', function() {
+                            uci.load('network').then(function() {
+                                uci.set('network', sid, 'device', devEl.value);
+                                uci.set('network', sid, 'vlan', vidEl.value);
+                                uci.set('network', sid, 'ports', portsEl.value.split(/\s+/));
+                                return uci.save();
+                            }).then(function() {
+                                ui.addNotification(null, E('p', {}, _('Saved to memory. Use Save & Apply at the top to commit.')), 'info');
+                                document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                    if (m.parentNode) m.parentNode.removeChild(m);
+                                });
+                                document.body.classList.remove('modal-overlay-active');
+                                self.vlanShowSub('edit');
+                                self.refreshPendingCount();
+                            });
+                        });
+                        return b;
+                    })()
+                ])
+            ]);
+        }
+
+        // Interface editor
+        var ifRows = (d.interfaces || []).map(function(i) {
+            return [i.sid || '', i.device || '', i.proto || '', i.ipaddr || '', i.netmask || ''];
+        });
+
+        function editIface(row) {
+            var sid = row[0];
+            var devEl = E('input', { 'type': 'text', 'value': row[1],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            var protoEl = E('input', { 'type': 'text', 'value': row[2],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            var ipEl = E('input', { 'type': 'text', 'value': row[3],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            var maskEl = E('input', { 'type': 'text', 'value': row[4],
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            ui.showModal(_('Edit interface ' + sid), [
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Device')), devEl]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Protocol')), protoEl]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('IP address')), ipEl]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Netmask')), maskEl]),
+                E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                    E('button', { 'class': 'btn cbi-button', 'style': 'margin-right:8px;',
+                        'click': function() {
+                            document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                if (m.parentNode) m.parentNode.removeChild(m);
+                            });
+                            document.body.classList.remove('modal-overlay-active');
+                        } }, _('Cancel')),
+                    (function() {
+                        var b = E('button', { 'class': 'btn cbi-button',
+                            'style': 'background:#28a745 !important;background-color:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;' }, _('Save'));
+                        b.addEventListener('click', function() {
+                            uci.load('network').then(function() {
+                                uci.set('network', sid, 'device', devEl.value);
+                                uci.set('network', sid, 'proto', protoEl.value);
+                                if (ipEl.value) uci.set('network', sid, 'ipaddr', ipEl.value);
+                                if (maskEl.value) uci.set('network', sid, 'netmask', maskEl.value);
+                                return uci.save();
+                            }).then(function() {
+                                ui.addNotification(null, E('p', {}, _('Saved to memory.')), 'info');
+                                document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                    if (m.parentNode) m.parentNode.removeChild(m);
+                                });
+                                document.body.classList.remove('modal-overlay-active');
+                                self.vlanShowSub('edit');
+                                self.refreshPendingCount();
+                            });
+                        });
+                        return b;
+                    })()
+                ])
+            ]);
+        }
+
+        return E('div', {}, [
+            E('p', { 'style': 'color:#888;font-size:0.9em;' },
+                _('Edit existing configuration. Every change is saved to memory; use the top-bar Save & Apply to commit.')),
+            card(_('Bridge-VLANs') + ' (' + vlanRows.length + ')',
+                table([_('Device'), _('VLAN'), _('Ports'), _('Section')], vlanRows, editVlan)),
+            card(_('Interfaces') + ' (' + ifRows.length + ')',
+                table([_('Name'), _('Device'), _('Proto'), _('IP'), _('Netmask')], ifRows, editIface)),
+            E('div', { 'style': 'margin-top:12px;text-align:right;' }, [
+                (function() {
+                    var b = E('button', { 'class': 'btn cbi-button',
+                        'style': 'background:#28a745 !important;background-color:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;' }, _('Save & Apply all VLAN changes'));
+                    b.addEventListener('click', function() {
+                        uci.save().then(function() {
+                            return ui.changes.apply(false);
+                        }).then(function() {
+                            ui.addNotification(null, E('p', {}, _('Changes applied.')), 'info');
+                            self.vlanShowSub('overview');
+                        }).catch(function(err) {
+                            var m = (err && err.message) ? err.message : String(err);
+                            if (/No data|code 5/i.test(m)) return;
+                            ui.addNotification(null, E('p', {}, 'Apply failed: ' + m), 'danger');
+                        });
+                    });
+                    return b;
+                })()
+            ])
+        ]);
+    },
+
+    // ---------- Import ----------
+    vlanRenderImport: function() {
+        var self = this;
+
+        var textarea = E('textarea', {
+            'spellcheck': 'false',
+            'style': 'width:100%;min-height:240px;font-family:monospace;font-size:0.88em;' +
+                     'padding:10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;',
+            'placeholder': '/interface bridge vlan\nadd bridge=bridge1 tagged=ether1,ether2 untagged=ether3 vlan-ids=10'
+        });
+
+        var formatSel = E('select', { 'style': 'width:100%;max-width:400px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;' });
+        [['auto','Auto-detect'],
+         ['mikrotik','MikroTik RouterOS'],
+         ['cisco','Cisco IOS / NX-OS'],
+         ['edgeos','EdgeOS / EdgeSwitch'],
+         ['generic','Generic 802.1Q'],
+         ['json','JSON (from this app)']].forEach(function(o) {
+            formatSel.appendChild(E('option', { 'value': o[0] }, o[1]));
+        });
+
+        var preview = E('pre', {
+            'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;font-size:0.85em;' +
+                     'white-space:pre-wrap;max-height:320px;overflow:auto;margin-top:14px;display:none;'
+        });
+
+        // ---- Parsers ----
+        function parseMikrotik(txt) {
+            var vlans = {};
+            txt.split('\n').forEach(function(line) {
+                if (line.indexOf('vlan-ids=') === -1) return;
+                var bridge = (line.match(/bridge=([^\s]+)/) || [])[1] || 'bridge1';
+                var vid = (line.match(/vlan-ids=([^\s]+)/) || [])[1];
+                if (!vid) return;
+                var tagged = ((line.match(/tagged=([^\s]+)/) || [])[1] || '').split(',').filter(Boolean);
+                var untagged = ((line.match(/untagged=([^\s]+)/) || [])[1] || '').split(',').filter(Boolean);
+                vlans[vid] = { sid: 'vlan' + vid, bridge: bridge, vlan: vid, tagged: tagged, untagged: untagged };
+            });
+            return { vlans: Object.keys(vlans).map(function(k) { return vlans[k]; }) };
+        }
+
+        function parseCisco(txt) {
+            var vlans = {};
+            var curVid = null, curIface = null, allowed = {}, native = {};
+            txt.split('\n').forEach(function(line) {
+                var l = line.trim();
+                if (/^vlan \d+/.test(l)) {
+                    curVid = l.match(/\d+/)[0];
+                } else if (/^interface\s+(.+)/.test(l)) {
+                    curIface = l.match(/^interface\s+(.+)/)[1];
+                } else if (/switchport trunk allowed vlan/i.test(l)) {
+                    var m = l.match(/vlan\s+(.+)/i);
+                    if (m) allowed[curIface] = m[1].split(',').map(function(x) { return x.trim(); });
+                } else if (/switchport trunk native vlan/i.test(l)) {
+                    var n = l.match(/vlan\s+(\d+)/i);
+                    if (n) native[curIface] = n[1];
+                } else if (/switchport access vlan/i.test(l)) {
+                    var a = l.match(/vlan\s+(\d+)/i);
+                    if (a && curIface) {
+                        if (!vlans[a[1]]) vlans[a[1]] = { sid: 'vlan' + a[1], bridge: 'br-lan', vlan: a[1], tagged: [], untagged: [] };
+                        vlans[a[1]].untagged.push(curIface);
+                    }
+                }
+            });
+            Object.keys(allowed).forEach(function(iface) {
+                allowed[iface].forEach(function(v) {
+                    if (!vlans[v]) vlans[v] = { sid: 'vlan' + v, bridge: 'br-lan', vlan: v, tagged: [], untagged: [] };
+                    vlans[v].tagged.push(iface);
+                });
+            });
+            return { vlans: Object.keys(vlans).map(function(k) { return vlans[k]; }) };
+        }
+
+        function parseEdgeos(txt) {
+            var vlans = {};
+            txt.split('\n').forEach(function(line) {
+                var m = line.match(/set interfaces ethernet (\S+) vif (\d+)/);
+                if (m) {
+                    var iface = m[1], vid = m[2];
+                    if (!vlans[vid]) vlans[vid] = { sid: 'vlan' + vid, bridge: 'br-lan', vlan: vid, tagged: [], untagged: [] };
+                    vlans[vid].tagged.push(iface);
+                }
+                var p = line.match(/set interfaces ethernet (\S+) pvid (\d+)/);
+                if (p) {
+                    var if2 = p[1], vid2 = p[2];
+                    if (!vlans[vid2]) vlans[vid2] = { sid: 'vlan' + vid2, bridge: 'br-lan', vlan: vid2, tagged: [], untagged: [] };
+                    vlans[vid2].untagged.push(if2);
+                }
+            });
+            return { vlans: Object.keys(vlans).map(function(k) { return vlans[k]; }) };
+        }
+
+        function parseGeneric(txt) {
+            var vlans = {};
+            txt.split('\n').forEach(function(line) {
+                var m = line.match(/VLAN\s+(\d+)\s+tagged:\s*([^\s]+)\s+untagged:\s*([^\s]+)/i);
+                if (!m) return;
+                var vid = m[1];
+                vlans[vid] = {
+                    sid: 'vlan' + vid, bridge: 'br-lan', vlan: vid,
+                    tagged: m[2].split(',').filter(Boolean),
+                    untagged: m[3].split(',').filter(Boolean)
+                };
+            });
+            return { vlans: Object.keys(vlans).map(function(k) { return vlans[k]; }) };
+        }
+
+        function parseInput(txt, fmt) {
+            var t = txt.trim();
+            if (fmt === 'json' || t.startsWith('{')) return JSON.parse(t);
+            if (fmt === 'mikrotik' || (fmt === 'auto' && /\/interface bridge vlan/.test(t))) return parseMikrotik(t);
+            if (fmt === 'cisco' || (fmt === 'auto' && /switchport (trunk|mode)/i.test(t))) return parseCisco(t);
+            if (fmt === 'edgeos' || (fmt === 'auto' && /set interfaces ethernet/.test(t))) return parseEdgeos(t);
+            if (fmt === 'generic' || (fmt === 'auto' && /VLAN \d+/.test(t))) return parseGeneric(t);
+            throw new Error('Could not detect format. Please pick one manually.');
+        }
+
+        var parseBtn = E('button', { 'class': 'btn cbi-button',
+            'style': 'padding:8px 18px;',
+            'click': function() {
+                try {
+                    var plan = parseInput(textarea.value, formatSel.value);
+                    preview.style.display = 'block';
+                    preview.textContent = JSON.stringify(plan, null, 2);
+                    window._vlanImportedPlan = plan;
+                    ui.addNotification(null, E('p', {},
+                        (plan.vlans || []).length + ' VLAN(s) parsed. Click Apply to write them.'),
+                        'info');
+                } catch (e) {
+                    preview.style.display = 'block';
+                    preview.textContent = 'Error: ' + (e.message || e);
+                    window._vlanImportedPlan = null;
+                }
+            } }, _('Parse'));
+
+        var applyBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background:#28a745 !important;background-color:#28a745 !important;color:#fff !important;' +
+                     'padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;margin-left:8px;'
+        }, _('Apply to this router'));
+        applyBtn.addEventListener('click', function() {
+            var plan = window._vlanImportedPlan;
+            if (!plan || !plan.vlans || !plan.vlans.length) {
+                ui.addNotification(null, E('p', {}, 'Nothing to apply — parse first.'), 'warning');
+                return;
+            }
+            if (!confirm('Apply ' + plan.vlans.length + ' VLAN(s) to this router? Snapshot will be taken first.')) return;
+            self.callVlan('apply', JSON.stringify(plan), '0').then(function(r) {
+                if (r && r.error) {
+                    ui.addNotification(null, E('p', {}, 'Apply failed: ' + r.error), 'danger');
+                    return;
+                }
+                ui.addNotification(null, E('p', {}, 'Applied.'), 'info');
+                self.vlanShowSub('overview');
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Apply failed: ' + (err.message || err)), 'danger');
+            });
+        });
+
+        var genBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background:#17a2b8 !important;background-color:#17a2b8 !important;color:#fff !important;' +
+                     'padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;margin-left:8px;'
+        }, _('Generate CLI'));
+        genBtn.addEventListener('click', function() {
+            var plan = window._vlanImportedPlan;
+            if (!plan || !plan.vlans || !plan.vlans.length) {
+                ui.addNotification(null, E('p', {}, 'Parse first.'), 'warning');
+                return;
+            }
+            ui.showModal(_('Generate CLI for'), [
+                E('div', { 'style': 'display:flex;gap:8px;flex-wrap:wrap;' }, [
+                    ['mikrotik','MikroTik'],['cisco','Cisco'],['edgeos','EdgeOS'],['generic','Generic']
+                    .map(function(t) {
+                        return E('button', { 'class': 'btn cbi-button', 'style': 'padding:8px 16px;',
+                            'click': function() {
+                                self.callVlan('generate_cli', JSON.stringify(plan), t[0]).then(function(r) {
+                                    if (r && r.cli) {
+                                        ui.showModal(_('Generated ') + t[1] + _(' CLI'), [
+                                            E('pre', { 'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;font-size:0.85em;white-space:pre-wrap;max-height:60vh;overflow:auto;width:100%;box-sizing:border-box;' }, r.cli),
+                                            E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                                                E('button', { 'class': 'btn cbi-button',
+                                                    'click': function() {
+                                                        navigator.clipboard && navigator.clipboard.writeText(r.cli);
+                                                        ui.addNotification(null, E('p', {}, 'Copied.'), 'info');
+                                                    } }, _('Copy')),
+                                                E('button', { 'class': 'btn cbi-button cbi-button-action',
+                                                    'style': 'margin-left:8px;',
+                                                    'click': function() {
+                                                        document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                                            if (m.parentNode) m.parentNode.removeChild(m);
+                                                        });
+                                                        document.body.classList.remove('modal-overlay-active');
+                                                    } }, _('Close'))
+                                            ])
+                                        ]);
+                                    }
+                                });
+                            } }, t[1]);
+                    })
+                ])
+            ]);
+        });
+
+        return E('div', {}, [
+            E('p', { 'style': 'color:#888;font-size:0.9em;' },
+                _('Paste a VLAN configuration from another platform. Parsers run in your browser — nothing is sent to the router until you click Apply.')),
+            E('div', { 'style': 'margin-bottom:12px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Format')),
+                formatSel
+            ]),
+            textarea,
+            E('div', { 'style': 'margin-top:14px;' }, [parseBtn, applyBtn, genBtn]),
+            preview
+        ]);
+    },
+
+    // ---------- SSID ----------
+    vlanRenderSsid: function() {
+        var self = this;
+        var d = self._vlanDetect || {};
+        var ifaces = d.wifi || [];
+        var nets = (d.interfaces || []).map(function(i) { return i.sid; }).sort();
+
+        function reload() {
+            self.callVlan('detect').then(function(dd) {
+                self._vlanDetect = dd;
+                self.vlanShowSub('ssid');
+            });
+        }
+
+        function openEdit(w) {
+            var sid = w.sid;
+            var ssidEl = E('input', { 'type': 'text', 'value': w.ssid || '',
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            var encEl = E('select', { 'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            [['psk2','WPA2-PSK'],['sae','WPA3-SAE'],['sae-mixed','WPA2/WPA3'],
+             ['psk-mixed','WPA/WPA2'],['psk','WPA-PSK'],['owe','OWE'],
+             ['none','Open']].forEach(function(o) {
+                var opt = E('option', { 'value': o[0] }, o[1]);
+                if (o[0] === (uci.get('wireless', sid, 'encryption') || 'psk2')) opt.selected = true;
+                encEl.appendChild(opt);
+            });
+            var keyEl = E('input', { 'type': 'text',
+                'value': uci.get('wireless', sid, 'key') || uci.get('wireless', sid, 'key1') || '',
+                'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-family:monospace;' });
+            var netEl = E('select', { 'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+            netEl.appendChild(E('option', { 'value': '' }, _('— none —')));
+            nets.forEach(function(n) {
+                var opt = E('option', { 'value': n }, n);
+                if (n === w.network) opt.selected = true;
+                netEl.appendChild(opt);
+            });
+            var isoCb = E('input', { 'type': 'checkbox' });
+            if (uci.get('wireless', sid, 'isolate') === '1') isoCb.checked = true;
+
+            var saveBtn = E('button', { 'class': 'btn cbi-button',
+                'style': 'background:#28a745 !important;background-color:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;' }, _('Save & Apply'));
+            saveBtn.addEventListener('click', function() {
+                uci.load('wireless').then(function() {
+                    uci.set('wireless', sid, 'ssid', ssidEl.value);
+                    uci.set('wireless', sid, 'encryption', encEl.value);
+                    if (encEl.value !== 'none' && encEl.value !== 'owe') {
+                        uci.set('wireless', sid, 'key', keyEl.value);
+                    }
+                    if (netEl.value) uci.set('wireless', sid, 'network', netEl.value);
+                    uci.set('wireless', sid, 'isolate', isoCb.checked ? '1' : '0');
+                    return uci.save();
+                }).then(function() {
+                    return ui.changes.apply(false);
+                }).then(function() {
+                    ui.addNotification(null, E('p', {}, _('SSID saved and applied.')), 'info');
+                    document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                        if (m.parentNode) m.parentNode.removeChild(m);
+                    });
+                    document.body.classList.remove('modal-overlay-active');
+                    reload();
+                }).catch(function(err) {
+                    var m = (err && err.message) ? err.message : String(err);
+                    if (/No data|code 5/i.test(m)) { reload(); return; }
+                    ui.addNotification(null, E('p', {}, 'Failed: ' + m), 'danger');
+                });
+            });
+
+            ui.showModal(_('Edit SSID: ') + (w.ssid || sid), [
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('SSID')), ssidEl]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Encryption')), encEl]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Password')), keyEl]),
+                E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Attach to network (VLAN interface)')), netEl]),
+                E('div', { 'style': 'margin-bottom:10px;display:flex;align-items:center;gap:8px;' }, [isoCb, E('label', { 'style': 'font-size:0.9em;' }, _('Client isolation'))]),
+                E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                    E('button', { 'class': 'btn cbi-button', 'style': 'margin-right:8px;',
+                        'click': function() {
+                            document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                if (m.parentNode) m.parentNode.removeChild(m);
+                            });
+                            document.body.classList.remove('modal-overlay-active');
+                        } }, _('Cancel')),
+                    saveBtn
+                ])
+            ]);
+        }
+
+        var t = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+        t.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+            E('th', { 'style': 'padding:8px;' }, _('SSID')),
+            E('th', { 'style': 'padding:8px;' }, _('Radio')),
+            E('th', { 'style': 'padding:8px;' }, _('Mode')),
+            E('th', { 'style': 'padding:8px;' }, _('Network')),
+            E('th', { 'style': 'padding:8px;text-align:right;' }, _(''))
+        ]));
+        ifaces.forEach(function(w) {
+            var tr = E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' }, [
+                E('td', { 'style': 'padding:8px;' }, w.ssid || w.sid),
+                E('td', { 'style': 'padding:8px;font-family:monospace;' }, w.device || '—'),
+                E('td', { 'style': 'padding:8px;' }, w.mode || 'ap'),
+                E('td', { 'style': 'padding:8px;' }, w.network || '—'),
+                E('td', { 'style': 'padding:8px;text-align:right;' },
+                    E('button', { 'class': 'btn cbi-button',
+                        'style': 'padding:2px 12px;font-size:0.85em;',
+                        'click': function() { openEdit(w); } }, _('Edit')))
+            ]);
+            t.appendChild(tr);
+        });
+
+        return E('div', {}, [
+            E('p', { 'style': 'color:#888;font-size:0.9em;' },
+                _('Every wireless interface on every radio — attach any SSID to a VLAN network with one click.')),
+            t
+        ]);
+    },
+
+    // ---------- Library ----------
+    vlanRenderLibrary: function() {
+        var self = this;
+
+        function card(title, body) {
+            return E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:14px 16px;margin-bottom:16px;' },
+                [E('h4', { 'style': 'margin:0 0 10px 0;font-size:1em;' }, title), body]);
+        }
+
+        var tplOut = E('div', { 'id': 'qa-vlan-tpl-list' });
+        var genOut = E('div', { 'id': 'qa-vlan-gen-list' });
+
+        function loadTemplates() {
+            tplOut.innerHTML = '';
+            tplOut.appendChild(E('p', { 'style': 'color:#888;padding:10px;' }, _('Loading...')));
+            self.callVlan('list_templates').then(function(r) {
+                var items = (r && r.templates) || [];
+                tplOut.innerHTML = '';
+                if (!items.length) {
+                    tplOut.appendChild(E('p', { 'style': 'color:#888;padding:6px;' },
+                        _('No templates yet. Save one from the Wizard after you build a plan.')));
+                    return;
+                }
+                var t = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+                t.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Name')),
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Target')),
+                    E('th', { 'style': 'padding:6px 8px;text-align:right;' }, _(''))
+                ]));
+                items.forEach(function(it) {
+                    var meta = {};
+                    try { meta = JSON.parse(it.meta || '{}'); } catch(e) {}
+                    t.appendChild(E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' }, [
+                        E('td', { 'style': 'padding:6px 8px;font-family:monospace;' }, it.name),
+                        E('td', { 'style': 'padding:6px 8px;' }, meta.target || '—'),
+                        E('td', { 'style': 'padding:6px 8px;text-align:right;' }, [
+                            E('button', { 'class': 'btn cbi-button',
+                                'style': 'padding:2px 10px;font-size:0.85em;margin-right:4px;',
+                                'click': function() {
+                                    self.callVlan('load_template', it.name).then(function(rr) {
+                                        try {
+                                            window._vlanLoadedTemplate = JSON.parse(rr.plan || '{}');
+                                            ui.addNotification(null, E('p', {},
+                                                _('Template loaded. Switch to Wizard to edit and apply.')),
+                                                'info');
+                                        } catch(e) {
+                                            ui.addNotification(null, E('p', {}, 'Bad template JSON'), 'danger');
+                                        }
+                                    });
+                                } }, _('Load')),
+                            E('button', { 'class': 'btn cbi-button cbi-button-negative',
+                                'style': 'padding:2px 10px;font-size:0.85em;',
+                                'click': function() {
+                                    if (!confirm(_('Delete template "' + it.name + '"?'))) return;
+                                    self.callVlan('delete_template', it.name).then(function() {
+                                        ui.addNotification(null, E('p', {}, _('Deleted')), 'info');
+                                        loadTemplates();
+                                    });
+                                } }, _('Delete'))
+                        ])
+                    ]));
+                });
+                tplOut.appendChild(t);
+            });
+        }
+
+        function loadGenerated() {
+            genOut.innerHTML = '';
+            genOut.appendChild(E('p', { 'style': 'color:#888;padding:10px;' }, _('Loading...')));
+            self.callVlan('list_generated').then(function(r) {
+                var items = (r && r.generated) || [];
+                genOut.innerHTML = '';
+                if (!items.length) {
+                    genOut.appendChild(E('p', { 'style': 'color:#888;padding:6px;' },
+                        _('No generated scripts yet. Use Generate CLI in the Wizard.')));
+                    return;
+                }
+                var t = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+                t.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Name')),
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Target')),
+                    E('th', { 'style': 'padding:6px 8px;text-align:right;' }, _(''))
+                ]));
+                items.forEach(function(it) {
+                    t.appendChild(E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' }, [
+                        E('td', { 'style': 'padding:6px 8px;font-family:monospace;' }, it.name),
+                        E('td', { 'style': 'padding:6px 8px;' }, it.target || '—'),
+                        E('td', { 'style': 'padding:6px 8px;text-align:right;' },
+                            E('button', { 'class': 'btn cbi-button cbi-button-negative',
+                                'style': 'padding:2px 10px;font-size:0.85em;',
+                                'click': function() {
+                                    if (!confirm(_('Delete generated script "' + it.name + '"?'))) return;
+                                    self.callVlan('delete_generated', it.name).then(function() {
+                                        loadGenerated();
+                                    });
+                                } }, _('Delete')))
+                    ]));
+                });
+                genOut.appendChild(t);
+            });
+        }
+
+        var saveBtn = E('button', { 'class': 'btn cbi-button',
+            'style': 'padding:8px 18px;',
+            'click': function() {
+                var plan = window._vlanImportedPlan || window._vlanLoadedTemplate;
+                if (!plan || !plan.vlans) {
+                    ui.addNotification(null, E('p', {}, _('Build a plan in the Wizard or Import first.')), 'warning');
+                    return;
+                }
+                var nameEl = E('input', { 'type': 'text', 'placeholder': 'template-name',
+                    'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+                var targetSel = E('select', { 'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+                ['openwrt-dsa','openwrt-swconfig','mikrotik','cisco','edgeos','generic'].forEach(function(v) {
+                    targetSel.appendChild(E('option', { 'value': v }, v));
+                });
+                var notesEl = E('input', { 'type': 'text',
+                    'style': 'width:100%;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+
+                var save = E('button', { 'class': 'btn cbi-button',
+                    'style': 'background:#28a745 !important;background-color:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;' }, _('Save'));
+                save.addEventListener('click', function() {
+                    if (!nameEl.value.trim()) { ui.addNotification(null, E('p', {}, 'Name required'), 'danger'); return; }
+                    self.callVlan('save_template', nameEl.value.trim(), targetSel.value, JSON.stringify(plan), notesEl.value).then(function() {
+                        ui.addNotification(null, E('p', {}, _('Template saved')), 'info');
+                        document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                            if (m.parentNode) m.parentNode.removeChild(m);
+                        });
+                        document.body.classList.remove('modal-overlay-active');
+                        loadTemplates();
+                    });
+                });
+
+                ui.showModal(_('Save current plan as template'), [
+                    E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Name')), nameEl]),
+                    E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Target platform')), targetSel]),
+                    E('div', { 'style': 'margin-bottom:10px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Notes')), notesEl]),
+                    E('div', { 'style': 'margin-top:14px;text-align:right;' }, [
+                        E('button', { 'class': 'btn cbi-button', 'style': 'margin-right:8px;',
+                            'click': function() {
+                                document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                                    if (m.parentNode) m.parentNode.removeChild(m);
+                                });
+                                document.body.classList.remove('modal-overlay-active');
+                            } }, _('Cancel')),
+                        save
+                    ])
+                ]);
+            }
+        }, _('Save current plan as template'));
+
+        loadTemplates();
+        loadGenerated();
+
+        return E('div', {}, [
+            E('p', { 'style': 'color:#888;font-size:0.9em;' },
+                _('Reusable VLAN schemes. Templates can be loaded back into the Wizard and applied on this or another router.')),
+            E('div', { 'style': 'margin-bottom:14px;' }, [saveBtn]),
+            card(_('Templates'), tplOut),
+            card(_('Generated scripts'), genOut)
+        ]);
+    },
+
+    // ---------- Safety ----------
+    vlanRenderSafety: function() {
+        var self = this;
+
+        function card(title, body) {
+            return E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:14px 16px;margin-bottom:16px;' },
+                [E('h4', { 'style': 'margin:0 0 10px 0;font-size:1em;' }, title), body]);
+        }
+
+        var listOut = E('div');
+        var pendingOut = E('div');
+
+        function load() {
+            pendingOut.innerHTML = '';
+            listOut.innerHTML = '';
+            self.callVlan('list_snapshots').then(function(r) {
+                // Pending rollback warning
+                if (r && r.pending) {
+                    var dl = parseInt(r.pending, 10);
+                    var now = Math.floor(Date.now() / 1000);
+                    var left = dl - now;
+                    if (left > 0) {
+                        pendingOut.appendChild(E('div', {
+                            'style': 'background:rgba(220,53,69,0.12);border:1px solid rgba(220,53,69,0.4);' +
+                                     'border-radius:6px;padding:12px 16px;margin-bottom:14px;font-size:0.95em;'
+                        }, [
+                            E('strong', { 'style': 'color:#c00;' }, _('⚠️ Pending auto-rollback in ' + left + 's. ')),
+                            _('Click Confirm to keep the changes, or do nothing to revert.'),
+                            E('button', { 'class': 'btn cbi-button', 'style': 'margin-left:12px;padding:6px 16px;background:#28a745 !important;color:#fff !important;border:none;',
+                                'click': function() {
+                                    self.callVlan('confirm').then(function() {
+                                        ui.addNotification(null, E('p', {}, _('Rollback cancelled.')), 'info');
+                                        load();
+                                    });
+                                } }, _('Confirm'))
+                        ]));
+                    }
+                }
+
+                var items = (r && r.snapshots) || [];
+                if (!items.length) {
+                    listOut.appendChild(E('p', { 'style': 'color:#888;' }, _('No snapshots yet.')));
+                    return;
+                }
+                var t = E('table', { 'style': 'width:100%;border-collapse:collapse;font-size:0.9em;' });
+                t.appendChild(E('tr', { 'style': 'text-align:left;border-bottom:2px solid rgba(0,0,0,0.1);' }, [
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Timestamp')),
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Size')),
+                    E('th', { 'style': 'padding:6px 8px;' }, _('Note')),
+                    E('th', { 'style': 'padding:6px 8px;text-align:right;' }, _(''))
+                ]));
+                items.forEach(function(it) {
+                    var fname = (it.path || '').split('/').pop();
+                    t.appendChild(E('tr', { 'style': 'border-bottom:1px solid rgba(0,0,0,0.05);' }, [
+                        E('td', { 'style': 'padding:6px 8px;font-family:monospace;' }, fname),
+                        E('td', { 'style': 'padding:6px 8px;' }, (it.size || 0) + ' B'),
+                        E('td', { 'style': 'padding:6px 8px;' }, it.note || '—'),
+                        E('td', { 'style': 'padding:6px 8px;text-align:right;' },
+                            E('button', { 'class': 'btn cbi-button cbi-button-action',
+                                'style': 'padding:2px 12px;font-size:0.85em;',
+                                'click': function() {
+                                    if (!confirm(_('Restore from ' + fname + '?\n\nNetwork will reload.'))) return;
+                                    self.callVlan('restore', it.path).then(function() {
+                                        ui.addNotification(null, E('p', {}, _('Restored.')), 'info');
+                                        setTimeout(function() { window.location.reload(); }, 1500);
+                                    });
+                                } }, _('Restore')))
+                    ]));
+                });
+                listOut.appendChild(t);
+            });
+        }
+
+        var snapBtn = E('button', { 'class': 'btn cbi-button cbi-button-action',
+            'style': 'padding:8px 18px;',
+            'click': function() {
+                var note = prompt(_('Snapshot note (optional):'), 'manual');
+                if (note === null) return;
+                self.callVlan('snapshot', note || 'manual').then(function(r) {
+                    if (r && r.path) {
+                        ui.addNotification(null, E('p', {}, _('Snapshot saved: ') + r.path), 'info');
+                        load();
+                    }
+                });
+            } }, _('📸 Snapshot now'));
+
+        load();
+
+        return E('div', {}, [
+            pendingOut,
+            card(_('Snapshot / Restore'),
+                E('div', {}, [
+                    E('p', { 'style': 'color:#888;font-size:0.9em;' },
+                        _('Every VLAN apply takes an automatic snapshot first. Restore if something goes wrong.')),
+                    E('div', { 'style': 'margin-bottom:14px;' }, [snapBtn]),
+                    listOut
+                ]))
+        ]);
+    },
+
+    // ---------- Diagnostics ----------
+    vlanRenderDiagnostics: function() {
+        var self = this;
+
+        // Load kernel interfaces once, cache for both dropdowns.
+        var kernelLoad = (self._vlanKernelIfaces ? Promise.resolve(self._vlanKernelIfaces) :
+            self.callVlan('kernel_ifaces').then(function(r) {
+                self._vlanKernelIfaces = (r && r.ifaces) || [];
+                return self._vlanKernelIfaces;
+            })).catch(function() { return []; });
+
+        function card(title, body) {
+            return E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:14px 16px;margin-bottom:16px;' },
+                [E('h4', { 'style': 'margin:0 0 10px 0;font-size:1em;' }, title), body]);
+        }
+
+        // Bridge VLAN show
+        var bvOut = E('pre', { 'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;font-size:0.85em;white-space:pre-wrap;max-height:400px;overflow:auto;margin:0;' }, _('(not loaded)'));
+        var bvBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:6px 14px;',
+            'click': function() {
+                bvOut.textContent = _('Loading...');
+                self.callVlan('bridge_vlan_show').then(function(r) {
+                    bvOut.textContent = (r && r.output) || '(empty)';
+                });
+            } }, _('Load bridge vlan show'));
+
+        // iface stats — kernel device dropdown
+        var ifSel = E('select', { 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        kernelLoad.then(function(ifs) {
+            ifSel.innerHTML = '';
+            ifs.forEach(function(i) {
+                var label = i.name + (i.up ? ' (up)' : '');
+                ifSel.appendChild(E('option', { 'value': i.name }, label));
+            });
+            if (!ifs.length) ifSel.appendChild(E('option', { 'value': '' }, 'no interfaces'));
+        });
+        var statOut = E('pre', { 'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;font-size:0.85em;white-space:pre-wrap;margin:10px 0 0 0;' }, '');
+        var statBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:6px 14px;',
+            'click': function() {
+                var dev = ifSel.value;
+                if (!dev) { statOut.textContent = 'No interface selected.'; return; }
+                statOut.textContent = 'Loading...';
+                self.callVlan('iface_stats', dev).then(function(r) {
+                    statOut.textContent = JSON.stringify(r, null, 2);
+                });
+            } }, _('Show stats'));
+
+        // cross-vlan ping
+        var srcSel = E('select', { 'style': 'width:100%;max-width:300px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        kernelLoad.then(function(ifs) {
+            srcSel.innerHTML = '';
+            // Filter to useful ping sources: bridges, pppoe, physical
+            var preferred = ifs.filter(function(i) {
+                var n = i.name;
+                return /^br-/.test(n) || /^pppoe-/.test(n) ||
+                       /^eth[0-9]/.test(n) || /^usb[0-9]/.test(n) ||
+                       n === 'tailscale0' || /^lan[0-9]/.test(n);
+            });
+            var list = preferred.length ? preferred : ifs;
+            list.forEach(function(i) {
+                var label = i.name + (i.up ? ' (up)' : '');
+                srcSel.appendChild(E('option', { 'value': i.name }, label));
+            });
+            if (!list.length) srcSel.appendChild(E('option', { 'value': '' }, 'no interfaces'));
+        });
+        var ipEl = E('input', { 'type': 'text', 'placeholder': '8.8.8.8',
+            'style': 'width:100%;max-width:300px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
+        var pingOut = E('pre', { 'style': 'background:#111;color:#0f0;padding:12px;border-radius:4px;font-size:0.85em;white-space:pre-wrap;margin:10px 0 0 0;' }, '');
+        var pingBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:6px 14px;',
+            'click': function() {
+                var iface = srcSel.value;
+                var ip = ipEl.value.trim();
+                if (!iface) { pingOut.textContent = 'No interface selected.'; return; }
+                if (!ip) { pingOut.textContent = 'Enter a target IP or host.'; return; }
+                pingOut.textContent = 'Pinging ' + ip + ' through ' + iface + '...';
+                self.callVlan('ping_test', iface, ip).then(function(r) {
+                    var out = (r && r.output) ? r.output : '';
+                    var rc = (r && r.exit_code != null) ? r.exit_code : '?';
+                    if (!out) {
+                        out = 'No output. Command: ping -I ' + iface + ' -c 3 -W 3 ' + ip + '\n' +
+                              'Exit code: ' + rc + '\n\n' +
+                              'Common causes:\n' +
+                              '- Interface has no route to target\n' +
+                              '- Interface is down\n' +
+                              '- Wrong device (use pppoe-wan for PPPoE WAN, not eth1)';
+                    } else {
+                        out = 'Exit code: ' + rc + '\n' + out;
+                    }
+                    pingOut.textContent = out;
+                });
+            } }, _('Run ping'));
+
+        return E('div', {}, [
+            E('p', { 'style': 'color:#888;font-size:0.9em;' },
+                _('Diagnostics tools. Load on demand — nothing runs in the background.')),
+            card(_('Bridge VLAN table'), E('div', {}, [bvBtn, E('div', { 'style': 'margin-top:10px;' }, [bvOut])])),
+            card(_('Interface stats'), E('div', {}, [ifSel, E('div', { 'style': 'margin-top:10px;' }, [statBtn]), statOut])),
+            card(_('Cross-VLAN ping'), E('div', {}, [
+                E('div', { 'style': 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;' }, [srcSel, ipEl]),
+                E('div', { 'style': 'margin-top:10px;' }, [pingBtn]),
+                pingOut
+            ]))
+        ]);
+    },
+
+    renderFailover: function() {
+        var self = this;
+
+        var rpcStatus = rpc.declare({
+            object: 'luci.quickactions-failover', method: 'status', expect: { '': {} }
+        });
+        var rpcInterfaces = rpc.declare({
+            object: 'luci.quickactions-failover', method: 'interfaces', expect: { '': {} }
+        });
+        var rpcAction = rpc.declare({
+            object: 'luci.quickactions-failover', method: 'action',
+            params: ['action'], expect: { '': {} }
+        });
+
+        function cfg(k, d) {
+            var v = uci.get('quickactions', 'failover', k);
+            return (v == null || v === '') ? d : v;
+        }
+
+        // ---- Status bar ----
+        var statusLabel = E('span', {
+            'style': 'font-weight:bold;padding:6px 12px;border-radius:4px;background:rgba(0,0,0,0.1);display:inline-block;'
+        }, '...');
+
+        function refreshStatus() {
+            return rpcStatus().then(function(r) {
+                var on = String(r.enabled) === '1';
+                var backup = String(r.on_backup) === '1';
+                statusLabel.textContent = 'STATUS: ' + (on ? 'ON' : 'OFF') +
+                    '   ·   MODE: ' + (backup ? 'BACKUP' : 'PRIMARY');
+                statusLabel.style.background = on
+                    ? (backup ? 'rgba(255,193,7,0.25)' : 'rgba(40,167,69,0.2)')
+                    : 'rgba(220,53,69,0.2)';
+                var log = document.getElementById('qa-fo-lastlog');
+                if (log) log.textContent = r.last_log || '(no recent log)';
+            }).catch(function() {});
+        }
+
+        // ---- Action buttons ----
+        function doAction(action, msg) {
+            if (!confirm(msg)) return;
+            rpcAction(action).then(function(r) {
+                ui.addNotification(null, E('pre', {
+                    'style': 'margin:0;white-space:pre-wrap;font-size:0.85em;'
+                }, (r && r.output) || '(done)'), 'info');
+                refreshStatus();
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Failed: ' + (err.message || err)), 'danger');
+            });
+        }
+
+        var controlBar = E('div', {
+            'style': 'display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:18px;' }, [
+            statusLabel,
+            E('button', { 'class': 'btn cbi-button',
+                'style': 'background-color:#28a745 !important;background:#28a745 !important;color:#fff !important;padding:8px 18px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;',
+                'click': function() { doAction('on',  'Enable failover cron + hotplug?'); } }, _('Enable')),
+            E('button', { 'class': 'btn cbi-button',
+                'style': 'background-color:#dc3545 !important;background:#dc3545 !important;color:#fff !important;padding:8px 18px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;',
+                'click': function() { doAction('off', 'Disable failover cron + hotplug?'); } }, _('Disable')),
+            E('button', { 'class': 'btn cbi-button',
+                'click': function() {
+                    ui.addNotification(null, E('p', {}, 'Running watchdog manually...'), 'info');
+                    rpcAction('test').then(function(r) {
+                        ui.addNotification(null, E('pre', {
+                            'style': 'margin:0;white-space:pre-wrap;font-size:0.85em;'
+                        }, (r && r.output) || '(no output)'), 'info');
+                        refreshStatus();
+                    });
+                } }, _('Run watchdog')),
+            E('button', { 'class': 'btn cbi-button', 'click': refreshStatus }, _('Refresh'))
+        ]);
+
+        // ---- Interface dropdowns ----
+        var primSel = E('select', {
+            'style': 'width:100%;max-width:440px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;' });
+
+        var backSel = E('select', {
+            'multiple': true, 'size': 8,
+            'style': 'width:100%;max-width:440px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;' });
+
+        var curPrim = cfg('primary', 'wan');
+        var curBackups = (cfg('backups', '') || '').split(/\s+/).filter(Boolean);
+
+        rpcInterfaces().then(function(r) {
+            var raw = (r && r.interfaces) ? String(r.interfaces).trim() : '';
+            var list = raw ? raw.split(/\s+/) : [];
+            list.forEach(function(n) {
+                if (!n) return;
+                var o1 = E('option', { 'value': n }, n);
+                if (n === curPrim) o1.selected = true;
+                primSel.appendChild(o1);
+
+                var o2 = E('option', { 'value': n }, n);
+                if (curBackups.indexOf(n) !== -1) o2.selected = true;
+                backSel.appendChild(o2);
+            });
+        }).catch(function(err) {
+            ui.addNotification(null, E('p', {}, 'Interface list failed: ' + (err.message || err)), 'warning');
+        });
+
+        function fieldRow(label, el, hint) {
+            return E('div', { 'style': 'margin-bottom:14px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:5px;font-weight:500;' }, label),
+                el,
+                hint ? E('div', { 'style': 'font-size:0.8em;color:#888;margin-top:4px;' }, hint) : null
+            ]);
+        }
+
+        function textField(key, dflt, hint) {
+            return fieldRow(_(key), E('input', {
+                'type': 'text', 'id': 'qa-fo-' + key,
+                'value': cfg(key, dflt),
+                'style': 'width:100%;max-width:440px;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;box-sizing:border-box;'
+            }), hint);
+        }
+
+        function checkboxRow(key, dflt, label, hint) {
+            var cb = E('input', { 'type': 'checkbox', 'id': 'qa-fo-' + key });
+            if (cfg(key, dflt) === '1') cb.checked = true;
+            return E('div', { 'style': 'margin-bottom:12px;display:flex;align-items:flex-start;gap:10px;' }, [
+                cb,
+                E('div', {}, [
+                    E('label', { 'style': 'font-size:0.95em;font-weight:500;' }, label),
+                    hint ? E('div', { 'style': 'font-size:0.8em;color:#888;margin-top:2px;' }, hint) : null
+                ])
+            ]);
+        }
+
+        var formGrid = E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;' }, [
+            textField('check_ips', '1.1.1.1 8.8.8.8',
+                _('Space-separated. Pings go out through the primary interface.')),
+            textField('check_interval', '60',
+                _('Seconds between cron runs.')),
+            textField('ping_timeout', '5',
+                _('Per-ping timeout in seconds.')),
+            textField('fail_threshold', '2',
+                _('Consecutive failures before failover.')),
+            textField('recover_threshold', '1',
+                _('Consecutive successes before switching back.'))
+        ]);
+
+        var checkboxes = E('div', { 'style': 'margin-top:16px;' }, [
+            checkboxRow('tailscale_restart', '0',
+                _('Restart Tailscale on failover and recovery'),
+                _('Fixes stuck tailscale0 routes when the WAN IP changes.')),
+            checkboxRow('firewall_reset', '1',
+                _('Reset firewall on failover'),
+                _('Prevents the "LAN access lost" bug on some OpenWrt forks.')),
+            checkboxRow('log_healthy', '0',
+                _('Log every healthy check'),
+                _('Generates ~1440 log lines per day. Leave off unless debugging.'))
+        ]);
+
+        function gather() {
+            var backups = [];
+            for (var i = 0; i < backSel.options.length; i++)
+                if (backSel.options[i].selected) backups.push(backSel.options[i].value);
+
+            uci.set('quickactions', 'failover', 'primary', primSel.value);
+            uci.set('quickactions', 'failover', 'backups', backups.join(' '));
+            ['check_ips', 'check_interval', 'ping_timeout',
+             'fail_threshold', 'recover_threshold'].forEach(function(k) {
+                var el = document.getElementById('qa-fo-' + k);
+                if (el) uci.set('quickactions', 'failover', k, el.value);
+            });
+            ['tailscale_restart', 'firewall_reset', 'log_healthy'].forEach(function(k) {
+                var el = document.getElementById('qa-fo-' + k);
+                if (el) uci.set('quickactions', 'failover', k, el.checked ? '1' : '0');
+            });
+            return uci.save();
+        }
+
+        var actionBar = E('div', { 'style': 'margin-top:22px;padding-top:16px;border-top:1px solid rgba(0,0,0,0.08);display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;' }, [
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'background-color:#6c757d !important;background:#6c757d !important;color:#fff !important;padding:8px 18px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;',
+                'click': function() {
+                    if (confirm('Discard form changes?')) self.switchTab('failover');
+                } }, _('Reset')),
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'background-color:#17a2b8 !important;background:#17a2b8 !important;color:#fff !important;padding:8px 18px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;',
+                'click': function() {
+                    gather().then(function() {
+                        ui.addNotification(null, E('p', {}, 'Saved to memory. Use Save & Apply to commit.'), 'info');
+                        self.refreshPendingCount();
+                    }).catch(function(err) {
+                        ui.addNotification(null, E('p', {}, 'Save failed: ' + (err.message || err)), 'danger');
+                    });
+                } }, _('Save')),
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'background-color:#28a745 !important;background:#28a745 !important;color:#fff !important;padding:8px 20px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;',
+                'click': function() {
+                    gather().then(function() {
+                        return ui.changes.apply(false);
+                    }).then(function() {
+                        ui.addNotification(null, E('p', {}, 'Saved and applied.'), 'info');
+                        self.refreshPendingCount();
+                        refreshStatus();
+                    }).catch(function(err) {
+                        var m = (err && err.message) ? err.message : String(err);
+                        if (/No data|code 5/i.test(m)) return;
+                        ui.addNotification(null, E('p', {}, 'Apply failed: ' + m), 'danger');
+                    });
+                } }, _('Save & Apply'))
+        ]);
+
+        var infoBar = E('div', {
+            'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:6px;padding:12px 16px;margin-bottom:18px;font-size:0.9em;line-height:1.55;' }, [
+            E('strong', {}, _('Failover — lightweight mwan3 alternative. ')),
+            _('Cron-driven ping tests run once per minute through the primary interface. ' +
+              'On repeated failure, the conntrack table is flushed so the kernel falls back to the backup ' +
+              'with the lowest route metric. Zero background RAM when idle — a single ping run per minute.')
+        ]);
+
+        var logBox = E('pre', {
+            'id': 'qa-fo-lastlog',
+            'style': 'background:#111;color:#0f0;padding:10px 12px;border-radius:4px;font-size:0.85em;' +
+                     'white-space:pre-wrap;word-break:break-all;max-height:100px;overflow:auto;margin:0;'
+        }, _('(no recent log)'));
+
+        refreshStatus();
+        if (self._failoverTimer) clearInterval(self._failoverTimer);
+        self._failoverTimer = setInterval(refreshStatus, 8000);
+
+        return E('div', {}, [
+            E('h3', { 'style': 'margin-top:0;' }, _('WAN Failover')),
+            infoBar,
+            controlBar,
+            E('h4', { 'style': 'margin:22px 0 12px 0;' }, _('Interfaces')),
+            fieldRow(_('Primary (fastest) interface'), primSel,
+                _('Traffic uses this interface whenever it is healthy.')),
+            fieldRow(_('Backup interfaces (multi-select)'), backSel,
+                _('Traffic switches to whichever backup is up with the lowest route metric.')),
+            E('h4', { 'style': 'margin:22px 0 12px 0;' }, _('Health check')),
+            formGrid,
+            E('h4', { 'style': 'margin:22px 0 12px 0;' }, _('Options')),
+            checkboxes,
+            actionBar,
+            E('h4', { 'style': 'margin:22px 0 12px 0;' }, _('Last log line')),
+            logBox
+        ]);
+    },
+
+    wirelessQuickEdit: function(sid) {
+        var self = this;
+        var dev = uci.get('wireless', sid, 'device') || '';
+        var ssid = uci.get('wireless', sid, 'ssid') || '';
+        var enc = uci.get('wireless', sid, 'encryption') || 'psk2';
+        var key = uci.get('wireless', sid, 'key') || uci.get('wireless', sid, 'key1') || '';
+        var net = uci.get('wireless', sid, 'network') || '';
+        var disabled = uci.get('wireless', sid, 'disabled') === '1';
+
+        var ssidEl = E('input', { 'type':'text', 'value': ssid,
+            'style':'width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;' });
+        var encSel = E('select', { 'style':'width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;' });
+        [['psk2','WPA2-PSK'],['sae','WPA3-SAE'],['sae-mixed','WPA2/WPA3 mixed'],
+         ['psk-mixed','WPA/WPA2 mixed'],['psk','WPA-PSK'],
+         ['owe','OWE (enhanced open)'],['none','Open']]
+            .forEach(function(o) {
+                var opt = E('option', { 'value': o[0] }, o[1]);
+                if (o[0] === enc) opt.selected = true;
+                encSel.appendChild(opt);
+            });
+        var keyEl = E('input', { 'type':'text', 'value': key,
+            'style':'width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-family:monospace;box-sizing:border-box;' });
+
+        var netSel = E('select', { 'style':'width:100%;padding:8px 10px;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;' });
+        var netOpts = (uci.sections('network', 'interface') || []).map(function(s) { return s['.name']; });
+        if (netOpts.indexOf(net) === -1 && net) netOpts.push(net);
+        netOpts.sort();
+        netOpts.forEach(function(n) {
+            var opt = E('option', { 'value': n }, n);
+            if (n === net) opt.selected = true;
+            netSel.appendChild(opt);
+        });
+
+        var disEl = E('input', { 'type':'checkbox' });
+        if (!disabled) disEl.checked = true;
+
+        var body = E('div', {}, [
+            E('div', { 'style':'margin-bottom:12px;' }, [
+                E('label', { 'style':'display:block;font-size:0.9em;color:#666;margin-bottom:5px;font-weight:500;' }, _('SSID')),
+                ssidEl
+            ]),
+            E('div', { 'style':'margin-bottom:12px;' }, [
+                E('label', { 'style':'display:block;font-size:0.9em;color:#666;margin-bottom:5px;font-weight:500;' }, _('Security')),
+                encSel
+            ]),
+            E('div', { 'style':'margin-bottom:12px;' }, [
+                E('label', { 'style':'display:block;font-size:0.9em;color:#666;margin-bottom:5px;font-weight:500;' }, _('Password')),
+                keyEl
+            ]),
+            E('div', { 'style':'margin-bottom:12px;' }, [
+                E('label', { 'style':'display:block;font-size:0.9em;color:#666;margin-bottom:5px;font-weight:500;' }, _('Network interface')),
+                netSel
+            ]),
+            E('div', { 'style':'margin-bottom:12px;display:flex;align-items:center;gap:10px;' }, [
+                disEl, E('label', { 'style':'font-size:0.95em;' }, _('Enabled'))
+            ]),
+            E('div', { 'style':'font-size:0.82em;color:#888;' }, _('Device: ') + dev)
+        ]);
+
+        function gather() {
+            uci.set('wireless', sid, 'ssid', ssidEl.value);
+            uci.set('wireless', sid, 'encryption', encSel.value);
+            if (encSel.value === 'none' || encSel.value === 'owe') {
+                uci.unset('wireless', sid, 'key');
+                uci.unset('wireless', sid, 'key1');
+            } else {
+                uci.set('wireless', sid, 'key', keyEl.value);
+            }
+            uci.set('wireless', sid, 'network', netSel.value);
+            uci.set('wireless', sid, 'disabled', disEl.checked ? '0' : '1');
+
+            // If this iface carries a guest_owner tag, mirror the changes
+            // into the corresponding guestwifi.@guest[X] section so the
+            // Guest WiFi tab also reflects them.
+            var owner = uci.get('wireless', sid, 'guest_owner');
+            if (owner) {
+                var match = (uci.sections('guestwifi', 'guest') || []).filter(function(g) {
+                    return g['.name'] === owner;
+                })[0];
+                if (match) {
+                    uci.set('guestwifi', owner, 'ssid', ssidEl.value);
+                    uci.set('guestwifi', owner, 'encryption', encSel.value);
+                    if (encSel.value !== 'none' && encSel.value !== 'owe') {
+                        uci.set('guestwifi', owner, 'password', keyEl.value);
+                    }
+                    // Mirror the enable/disable state as well. Guest tab
+                    // reads guestwifi.*.enable, so without this the toggle
+                    // wouldn't reflect back.
+                    uci.set('guestwifi', owner, 'enable', disEl.checked ? '1' : '0');
+                }
+            }
+        }
+
+        function closeModal() {
+            document.querySelectorAll('.modal-overlay').forEach(function(m) {
+                if (m.parentNode) m.parentNode.removeChild(m);
+            });
+            document.body.classList.remove('modal-overlay-active');
+        }
+
+        var cancelBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'margin-right:8px;padding:8px 20px;'
+        }, _('Cancel'));
+        cancelBtn.addEventListener('click', closeModal);
+
+        var saveBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background-color:#17a2b8 !important;background:#17a2b8 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;margin-right:8px;'
+        }, _('Save'));
+        saveBtn.addEventListener('click', function() {
+            gather();
+            uci.save().then(function() {
+                closeModal();
+                self.refreshPendingCount();
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(e) { window.scrollTo(0, 0); }
+                ui.addNotification(null,
+                    E('p', {}, _('Saved. Scroll to the top of the page and click "Save & Apply" to commit.')),
+                    'info');
+            }).catch(function(err) {
+                ui.addNotification(null, E('p', {}, 'Save failed: ' + (err.message||err)), 'danger');
+            });
+        });
+
+        var applyBtn = E('button', {
+            'class': 'btn cbi-button',
+            'style': 'background-color:#28a745 !important;background:#28a745 !important;color:#fff !important;padding:8px 22px;font-weight:bold;border:none;border-radius:4px;cursor:pointer;'
+        }, _('Save & Apply'));
+        applyBtn.addEventListener('click', function() {
+            gather();
+            var applyRpc = rpc.declare({
+                object: 'uci', method: 'apply',
+                params: ['rollback'], expect: { '': {} }
+            });
+            uci.save().then(function() {
+                // Raw rpc uci/apply — the LuCI wrapper ui.changes.apply()
+                // reloads the current view after applying, which resets the
+                // tab hash and drops us back on the Dashboard.
+                return applyRpc(0);
+            }).then(function() {
+                closeModal();
+                ui.addNotification(null,
+                    E('p', {}, _('Wireless saved and applied. Reloading...')),
+                    'info');
+                // Reload the page. This clears LuCI's stale change counter
+                // (the tracker lives in browser memory) and gives the Guest
+                // WiFi iframe a fresh load so it picks up the new config.
+                setTimeout(function() {
+                    window.location.reload();
+                }, 900);
+            }).catch(function(err) {
+                var m = (err && err.message) ? err.message : String(err);
+                if (/No data|code 5/i.test(m)) {
+                    closeModal();
+                    return;
+                }
+                ui.addNotification(null, E('p', {}, 'Apply failed: ' + m), 'danger');
+            });
+        });
+
+        ui.showModal(_('Edit wireless: ' + (ssid || sid)), [
+            body,
+            E('div', { 'style':'margin-top:16px;text-align:right;' }, [cancelBtn, saveBtn, applyBtn])
+        ]);
+    },
+
     renderConfigForm: function() {
         var self = this;
         var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
@@ -3608,6 +6130,9 @@ return view.extend({
             { id: 'netwizard', label: 'Network Setup' },
             { id: 'command', label: 'Command' },
             { id: 'dependencies', label: 'Dependencies' },
+            { id: 'scripts', label: 'Scripts' },
+            { id: 'vlan', label: 'VLAN' },
+            { id: 'failover', label: 'Failover' },
             { id: 'config', label: 'Configuration' }
         ];
         function showTab(id) {
@@ -3650,7 +6175,9 @@ return view.extend({
             else if (id === 'guestwifi') {
                 // Guest WiFi's form.Map hijacks #view when rendered inline. Isolate it in an iframe.
                 var baseUrl = window.location.pathname;
-                var iframeUrl = baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=guestwifi';
+                // Cache-bust so the iframe always reloads its config from disk
+                var iframeUrl = baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?')
+                    + 'embed=guestwifi&_t=' + Date.now();
                 var infoBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.85em;display:flex;align-items:center;gap:12px;flex-wrap:wrap;' }, [
                     E('span', { 'style': 'flex:1;' }, 'Guest WiFi runs in an isolated frame so this tab bar stays visible. Save & Apply works normally inside the frame.'),
                     E('a', { 'href': iframeUrl, 'target': '_blank', 'style': 'color:#1e90ff;font-weight:bold;' }, 'Open in new tab ↗'),
@@ -3852,6 +6379,9 @@ return view.extend({
                     tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Network Setup error: ' + (err && err.message ? err.message : String(err))));
                 });
             }
+            else if (id === 'scripts') tabContent.appendChild(self.renderScripts());
+            else if (id === 'vlan') tabContent.appendChild(self.renderVlan());
+            else if (id === 'failover') tabContent.appendChild(self.renderFailover());
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
             else if (id === 'config') {
@@ -3928,7 +6458,7 @@ return view.extend({
             // Strip leading '#', trailing '/', and any query after the tab id
             var rawHash = (window.location.hash || '').replace(/^#/, '');
             rawHash = rawHash.split('?')[0].split('/')[0];
-            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','config'];
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','scripts','vlan','failover','config'];
             if (rawHash && known.indexOf(rawHash) !== -1) initialTab = rawHash;
         } catch(e) {}
         showTab(initialTab);
@@ -3948,7 +6478,7 @@ return view.extend({
         setInterval(function() { self.refreshPendingCount(); }, 3000);
         window.addEventListener('hashchange', function() {
             var nh = (window.location.hash || '').replace(/^#/, '').split('?')[0].split('/')[0];
-            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','config'];
+            var known = ['dashboard','essential','tools','logs','services','hotplug','crontab','guestwifi','ttyd','taskplan','netwizard','command','dependencies','scripts','vlan','failover','config'];
             if (nh && known.indexOf(nh) !== -1 && nh !== self.activeTab) showTab(nh);
         });
 

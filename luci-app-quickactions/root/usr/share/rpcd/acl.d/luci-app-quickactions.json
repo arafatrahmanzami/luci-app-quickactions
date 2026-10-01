@@ -13,6 +13,15 @@
 				],
 				"luci.quickactions-taskplan": [
 					"*"
+				],
+				"luci.quickactions-failover": [
+					"*"
+				],
+				"luci.quickactions-scripts": [
+					"*"
+				],
+				"luci.quickactions-vlan": [
+					"*"
 				]
 			},
 			"file": {
@@ -59,6 +68,27 @@
 					"read"
 				],
 				"/etc/config/lighttpd": [
+					"read"
+				],
+				"/tmp/quickactions_wan_down.lock": [
+					"read"
+				],
+				"/tmp/quickactions_wan_fails.count": [
+					"read"
+				],
+				"/tmp/quickactions_wan_oks.count": [
+					"read"
+				],
+				"/etc/quickactions/scripts/*": [
+					"read"
+				],
+				"/etc/quickactions/vlan/*": [
+					"read"
+				],
+				"/etc/quickactions/vlan/templates/*": [
+					"read"
+				],
+				"/etc/quickactions/vlan/generated/*": [
 					"read"
 				]
 			},
@@ -94,6 +124,15 @@
 				],
 				"luci.quickactions-taskplan": [
 					"*"
+				],
+				"luci.quickactions-failover": [
+					"*"
+				],
+				"luci.quickactions-scripts": [
+					"*"
+				],
+				"luci.quickactions-vlan": [
+					"*"
 				]
 			},
 			"file": {
@@ -141,6 +180,18 @@
 				],
 				"/etc/config/lighttpd": [
 					"write"
+				],
+				"/etc/quickactions/scripts/*": [
+					"write"
+				],
+				"/etc/quickactions/vlan/*": [
+					"write"
+				],
+				"/etc/quickactions/vlan/templates/*": [
+					"write"
+				],
+				"/etc/quickactions/vlan/generated/*": [
+					"write"
 				]
 			},
 			"uci": [
@@ -175,6 +226,12 @@
 				],
 				"/usr/libexec/quickactions-netwizard/apply-shortcuts.sh": [
 					"exec"
+				],
+				"/usr/bin/quickactions-failover": [
+					"on",
+					"off",
+					"status",
+					"test"
 				]
 			}
 		}
