@@ -14,8 +14,8 @@ Dependencies, Scripts, Failover, VLAN, Configuration.
 
 ```sh
 cd /tmp
-wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r10/luci-app-quickactions_3.0.0-r10_all.ipk
-opkg install --force-reinstall /tmp/luci-app-quickactions_3.0.0-r10_all.ipk
+wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r11/luci-app-quickactions_3.0.0-r11_all.ipk
+opkg install --force-reinstall /tmp/luci-app-quickactions_3.0.0-r11_all.ipk
 /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart
 rm -rf /tmp/luci-*
 ```
@@ -24,9 +24,9 @@ rm -rf /tmp/luci-*
 
 ```sh
 cd /tmp
-wget -O luci-app-quickactions-3.0.0-r10.apk \
-  https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r10/luci-app-quickactions-3.0.0-r10.apk
-apk add --allow-untrusted /tmp/luci-app-quickactions-3.0.0-r10.apk
+wget -O luci-app-quickactions-3.0.0-r11.apk \
+  https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r11/luci-app-quickactions-3.0.0-r11.apk
+apk add --allow-untrusted /tmp/luci-app-quickactions-3.0.0-r11.apk
 /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart
 rm -rf /tmp/luci-*
 ```
@@ -37,8 +37,8 @@ A rootfs tarball is available for advanced/manual installs:
 
 ```sh
 cd /
-wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r10/luci-app-quickactions-3.0.0-r10-rootfs.tar.gz
-tar xzf luci-app-quickactions-3.0.0-r10-rootfs.tar.gz
+wget https://github.com/arafatrahmanzami/luci-app-quickactions/releases/download/v3.0.0-r11/luci-app-quickactions-3.0.0-r11-rootfs.tar.gz
+tar xzf luci-app-quickactions-3.0.0-r11-rootfs.tar.gz
 chmod 755 /usr/bin/quickactions-*
 chmod 755 /etc/init.d/quickactions-*
 /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart
@@ -297,6 +297,23 @@ Optional (for extended VLAN diagnostics):
 ---
 
 ## Release history
+
+### v3.0.0-r11
+
+- **Dynamic language switcher** — reads installed languages from
+  `/usr/lib/lua/luci/i18n/` and maps display names. Bengali now shows
+  as বাংলা instead of `bn`.
+- **Command exit code visibility** — Command tab and Tools show
+  `[exit code N]` prefix and use a warning toast when a command fails.
+- **Progress toasts** auto-dismiss after 8 seconds via
+  `ui.addTimeLimitedNotification`.
+- **Essential "Download Config Backup"** — now runs
+  `/sbin/sysupgrade -b` to create a real backup file and lists it in
+  the toast (previous `@download:` endpoint returned "Invalid form
+  data" because it requires a POST with CSRF token).
+- **Makefile**: removed `/etc/config/netwizard` from `conffiles`
+  (owned by `luci-app-netwizard`); dropped the bundled netwizard
+  config from this package.
 
 ### v3.0.0-r10
 
