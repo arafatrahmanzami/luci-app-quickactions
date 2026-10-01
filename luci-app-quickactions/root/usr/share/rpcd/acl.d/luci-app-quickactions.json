@@ -60,6 +60,12 @@
 				],
 				"/etc/config/lighttpd": [
 					"read"
+				],
+				"/usr/libexec/quickactions-netwizard/list-backups.sh": [
+					"exec"
+				],
+				"/bin/sh -c *": [
+					"exec"
 				]
 			},
 			"uci": [
@@ -141,6 +147,15 @@
 				],
 				"/etc/config/lighttpd": [
 					"write"
+				],
+				"/usr/libexec/quickactions-netwizard/*": [
+					"exec"
+				],
+				"/bin/sh -c *": [
+					"exec"
+				],
+				"/etc/init.d/cron restart": [
+					"exec"
 				]
 			},
 			"uci": [

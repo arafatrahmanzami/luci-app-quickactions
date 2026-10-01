@@ -1,0 +1,2227 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: luci-app-quickactions 3.0.0\n"
+"POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: 2026-09-23 12:00+0000\n"
+"Last-Translator: Devin <i18n@devin.ai>\n"
+"Language-Team: Chinese (Simplified) <i18n@devin.ai>\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "%s %s"
+msgstr "%s %s"
+
+msgid "%s (%s) → AP:"
+msgstr "%s (%s) → AP："
+
+msgid "%s Done"
+msgstr "%s 完成"
+
+msgid "%s applied. ttyd restarted."
+msgstr "%s 已应用。ttyd 已重启。"
+
+msgid "%s change(s) applying..."
+msgstr "%s 项变更正在应用…"
+
+msgid "%s is running..."
+msgstr "%s 正在运行…"
+
+msgid "%s moved %s"
+msgstr "%s 移动到 %s"
+
+msgid "%s → %s"
+msgstr "%s → %s"
+
+msgid "%s..."
+msgstr "%s…"
+
+msgid "(none)"
+msgstr "(无)"
+
+msgid "... and %s more"
+msgstr "... 还有 %s 条"
+
+msgid "/etc/init.d/firewall restart"
+msgstr "例如：/etc/init.d/firewall restart"
+
+msgid "2.4 GHz"
+msgstr "2.4 GHz"
+
+msgid "5 GHz"
+msgstr "5 GHz"
+
+msgid "6 GHz"
+msgstr "6 GHz"
+
+msgid "A user interface for easily creating and management isolated Wi-Fi networks for guests, each with its own access point, DHCP, and firewall rules."
+msgstr "一个方便创建和管理隔离的访客 Wi-Fi 网络的图形界面，每个网络都有独立的接入点、DHCP 和防火墙规则。"
+
+msgid "AGGRESSIVE REBUILD"
+msgstr "激进重建"
+
+msgid "Accept one client then exit"
+msgstr "仅接受一个客户端后退出"
+
+msgid "Action"
+msgstr "操作"
+
+msgid "Active UBUS services"
+msgstr "活动 UBUS 服务"
+
+msgid "Active ubus Services"
+msgstr "活动 ubus 服务"
+
+msgid "Add"
+msgstr "添加"
+
+msgid "Add LAN port configuration (setlan)"
+msgstr "添加 LAN 口配置（setlan）"
+
+msgid "Add new guest network..."
+msgstr "添加新的访客网络..."
+
+msgid "Add this cron entry?"
+msgstr "添加此 cron 条目？"
+
+msgid "Add to Cron"
+msgstr "添加到 Cron"
+
+msgid "Added"
+msgstr "已添加"
+
+msgid "Adds firewall.syn_flood=1, synflood_protect=1."
+msgstr "设置 firewall.syn_flood=1、synflood_protect=1。"
+
+msgid "Advanced"
+msgstr "高级"
+
+msgid "Aggressive apply in progress..."
+msgstr "激进应用进行中…"
+
+msgid "Alert (2)"
+msgstr "警报 (2)"
+
+msgid "Ali DNS: 223.5.5.5"
+msgstr "阿里 DNS：223.5.5.5"
+
+msgid "All Installed Packages with Dependencies"
+msgstr "所有已安装软件包及其依赖"
+
+msgid "All backend options. Save applies and restarts ttyd."
+msgstr "所有后端选项。保存后会应用并重启 ttyd。"
+
+msgid "All changes committed and applied."
+msgstr "所有变更已提交并应用。"
+
+msgid "All packages"
+msgstr "所有软件包"
+
+msgid "All pending changes discarded."
+msgstr "所有待处理的变更已丢弃。"
+
+msgid "All ubus services"
+msgstr "所有 ubus 服务"
+
+msgid "Allow URL args"
+msgstr "允许 URL 参数"
+
+msgid "Already Disabled"
+msgstr "已禁用"
+
+msgid "Already Enabled"
+msgstr "已启用"
+
+msgid "Already set."
+msgstr "已设置。"
+
+msgid "Already using \"%s\"."
+msgstr "已经在使用 \"%s\"。"
+
+msgid "Applied"
+msgstr "已应用"
+
+msgid "Apply"
+msgstr "应用"
+
+msgid "Apply \"%s\" to service \"%s\"?"
+msgstr "将 \"%s\" 应用到服务 \"%s\"？"
+
+msgid "Apply ALL pending changes system-wide?"
+msgstr "应用所有待处理的系统级变更？"
+
+msgid "Apply Aggressive Rebuild"
+msgstr "应用激进重建"
+
+msgid "Apply PPPoE"
+msgstr "应用 PPPoE"
+
+msgid "Apply failed: %s"
+msgstr "应用失败：%s"
+
+msgid "Apply wireless changes? SSID: %s, encryption: %s"
+msgstr "应用无线变更？SSID：%s，加密：%s"
+
+msgid "Applying"
+msgstr "应用"
+
+msgid "Applying \"%s\"..."
+msgstr "正在应用 \"%s\"…"
+
+msgid "Applying guest WiFi configuration..."
+msgstr "正在应用访客 Wi-Fi 配置…"
+
+msgid "Applying hotplug config..."
+msgstr "正在应用 hotplug 配置…"
+
+msgid "Applying scheduled tasks..."
+msgstr "正在应用定时任务…"
+
+msgid "Applying startup tasks..."
+msgstr "正在应用启动任务…"
+
+msgid "Applying ttyd config..."
+msgstr "正在应用 ttyd 配置…"
+
+msgid "April"
+msgstr "四月"
+
+msgid "August"
+msgstr "八月"
+
+msgid "Auto-Login: ON"
+msgstr "自动登录：开"
+
+msgid "Auto-detects apk (OpenWrt 25.12+) vs opkg (older). Enter a package name to view its dependencies."
+msgstr "自动检测 apk（OpenWrt 25.12+）或 opkg（旧版）。输入软件包名查看其依赖。"
+
+msgid "Auto-login disabled"
+msgstr "自动登录已禁用"
+
+msgid "Auto-login enabled"
+msgstr "自动登录已启用"
+
+msgid "Auto-login is already active."
+msgstr "自动登录已启用。"
+
+msgid "Auto-login is already active. Terminal runs %s."
+msgstr "自动登录已启用。终端正在运行 %s。"
+
+msgid "Back to settings"
+msgstr "返回设置"
+
+msgid "Backing up"
+msgstr "正在备份"
+
+msgid "Backup & Restore"
+msgstr "备份与恢复"
+
+msgid "Backup Now"
+msgstr "立即备份"
+
+msgid "Backup and Restore"
+msgstr "备份还原"
+
+msgid "Backup complete"
+msgstr "备份完成"
+
+msgid "Backup failed"
+msgstr "备份失败"
+
+msgid "Backup first. Proceed?"
+msgstr "先备份。是否继续？"
+
+msgid "Backup will be taken first."
+msgstr "将首先进行备份。"
+
+msgid "Backups"
+msgstr "备份"
+
+msgid "Backups, restore, opt-in aggressive rebuild."
+msgstr "备份、还原、可选的激进重建。"
+
+msgid "Base SSID"
+msgstr "基础 SSID"
+
+msgid "Base SSID will auto-append _2.4G, _5G, _6G per radio."
+msgstr "基础 SSID 将按射频自动追加 _2.4G、_5G、_6G。"
+
+msgid "Basic auth user:password"
+msgstr "基本认证 用户名:密码"
+
+msgid "Bind to UNIX domain socket instead of IP port"
+msgstr "绑定到 UNIX 域套接字而不是 IP 端口"
+
+msgid "Block cross-origin WebSocket"
+msgstr "阻止跨源 WebSocket"
+
+msgid "Blocks communication between clients on this guest network."
+msgstr "阻止此访客网络中客户端之间的互相通信。"
+
+msgid "Button Style"
+msgstr "按钮样式"
+
+msgid "Buttons that jump to other LuCI pages."
+msgstr "跳转到其他 LuCI 页面的按钮。"
+
+msgid "Bypass gateway, set LAN gateway manually."
+msgstr "绕过网关，手动设置 LAN 网关。"
+
+msgid "Bypass gateway. LAN stays, WAN unused."
+msgstr "旁路由。保留 LAN，不使用 WAN。"
+
+msgid "Change Password"
+msgstr "修改密码"
+
+msgid "Change Root Password"
+msgstr "修改 root 密码"
+
+msgid "Change log level to %s?"
+msgstr "将日志级别改为 %s？"
+
+msgid "Change root password? This will lock you out if LuCI is the only access."
+msgstr "修改 root 密码？如果 LuCI 是唯一访问方式，修改后将无法登录。"
+
+msgid "Change root password? You will be logged out."
+msgstr "修改 root 密码？你将退出登录。"
+
+msgid "Character types to use when generating a password."
+msgstr "生成密码时使用的字符类型。"
+
+msgid "Check origin"
+msgstr "检查来源"
+
+msgid "Check period (seconds)"
+msgstr "检查周期（秒）"
+
+msgid "Check the box above first."
+msgstr "请先勾选上方复选框。"
+
+msgid "Check the cron entry - it must contain time + command"
+msgstr "请检查 cron 条目 - 必须包含时间和命令"
+
+msgid "Choose the mode below and configure WAN."
+msgstr "在下方选择模式并配置 WAN。"
+
+msgid "Choose the mode that matches your setup."
+msgstr "选择与你的网络环境匹配的模式。"
+
+msgid "Clear"
+msgstr "清除"
+
+msgid "Clear Log"
+msgstr "清除记录"
+
+msgid "Clear LuCI Cache"
+msgstr "清除 LuCI 缓存"
+
+msgid "Clear the task plan log?"
+msgstr "清除任务计划日志？"
+
+msgid "Cleared"
+msgstr "已清除"
+
+msgid "Click to disable root auto-login"
+msgstr "点击禁用 root 自动登录"
+
+msgid "Click to enable root auto-login"
+msgstr "点击启用 root 自动登录"
+
+msgid "Client isolation"
+msgstr "客户端隔离"
+
+msgid "Client option"
+msgstr "客户端选项"
+
+msgid "Cloudflare DNS: 1.1.1.1"
+msgstr "Cloudflare DNS：1.1.1.1"
+
+msgid "Command"
+msgstr "命令"
+
+msgid "Command \"%s\" will run at"
+msgstr "命令“%s”将运行于"
+
+msgid "Command \"%s\" will run every minute."
+msgstr "命令“%s”将每分钟运行。"
+
+msgid "Command executing..."
+msgstr "命令正在执行…"
+
+msgid "Command to execute:"
+msgstr "要执行的命令："
+
+msgid "Command to run in the shell"
+msgstr "要在 shell 中运行的命令"
+
+msgid "Command:"
+msgstr "命令："
+
+msgid "Commands to run"
+msgstr "要执行的命令"
+
+msgid "Committing %s change(s)..."
+msgstr "正在提交 %s 项变更…"
+
+msgid "Compact View"
+msgstr "紧凑视图"
+
+msgid "Complete"
+msgstr "完成"
+
+msgid "Configuration"
+msgstr "配置"
+
+msgid "Configuration saved to memory. Use the yellow bar at the top to apply."
+msgstr "配置已保存到内存。请使用顶部黄色条进行应用。"
+
+msgid "Configure WAN as PPPoE. Backs up /etc/config/network first."
+msgstr "将 WAN 配置为 PPPoE。先备份 /etc/config/network。"
+
+msgid "Configure WAN as PPPoE. Existing network config is backed up first."
+msgstr "将 WAN 配置为 PPPoE。现有网络配置会先备份。"
+
+msgid "Configuring PPPoE..."
+msgstr "正在配置 PPPoE…"
+
+msgid "Confirm Password"
+msgstr "确认密码"
+
+msgid "Confirm: %s"
+msgstr "确认：%s"
+
+msgid "Connection closed"
+msgstr "连接已关闭"
+
+msgid "Connectivity Monitor"
+msgstr "连通性监控"
+
+msgid "Connectivity Monitors"
+msgstr "连通性监控"
+
+msgid "Continue?"
+msgstr "是否继续？"
+
+msgid "Creating backup..."
+msgstr "正在创建备份…"
+
+msgid "Credential"
+msgstr "凭据"
+
+msgid "Critical (3)"
+msgstr "严重 (3)"
+
+msgid "Cron Log Level"
+msgstr "计划任务日志级别"
+
+msgid "Crontab"
+msgstr "定时任务"
+
+msgid "Current config will be saved as pre-restore backup first."
+msgstr "当前配置将先保存为恢复前备份。"
+
+msgid "Current mode:"
+msgstr "当前模式："
+
+msgid "Current:"
+msgstr "当前："
+
+msgid "Current: %s. Lower = fewer logs."
+msgstr "当前：%s。数值越低，日志越少。"
+
+msgid "Currently active"
+msgstr "当前已启用"
+
+msgid "Custom index.html path"
+msgstr "自定义 index.html 路径"
+
+msgid "DHCP (automatic)"
+msgstr "DHCP（自动）"
+
+msgid "DHCP Client"
+msgstr "DHCP 客户端"
+
+msgid "DHCP client"
+msgstr "DHCP 客户端"
+
+msgid "DHCP client limit"
+msgstr "DHCP 客户端限制"
+
+msgid "DHCP lease time"
+msgstr "DHCP 租用时间"
+
+msgid "DHCP range start"
+msgstr "DHCP 分配起始地址"
+
+msgid "DHCP rule ports"
+msgstr "DHCP 规则端口"
+
+msgid "DNS notify →"
+msgstr "DNS 通知 → "
+
+msgid "DNS push →"
+msgstr "DNS 推送 → "
+
+msgid "DNS rule port"
+msgstr "DNS 规则端口"
+
+msgid "DNS to push to clients"
+msgstr "要推送给客户端的 DNS"
+
+msgid "Dashboard"
+msgstr "仪表板"
+
+msgid "Day"
+msgstr "天"
+
+msgid "Debug"
+msgstr "调试"
+
+msgid "Debug (8)"
+msgstr "调试 (8)"
+
+msgid "December"
+msgstr "十二月"
+
+msgid "Default"
+msgstr "默认"
+
+msgid "Default router. WAN gets IP from upstream."
+msgstr "默认路由。WAN 从上游获取 IP。"
+
+msgid "Delayed Start(seconds)"
+msgstr "延迟启动(秒)"
+
+msgid "Delete"
+msgstr "删除 "
+
+msgid "Delete shortcut \"%s\"?"
+msgstr "删除快捷方式 \"%s\"？"
+
+msgid "Deleted"
+msgstr "已删除"
+
+msgid "Deny client write access to TTY"
+msgstr "拒绝客户端对 TTY 的写入权限"
+
+msgid "Dependencies"
+msgstr "依赖"
+
+msgid "Dependencies error:"
+msgstr "依赖检查错误："
+
+msgid "Dependencies: %s"
+msgstr "依赖：%s"
+
+msgid "Dependency pairs"
+msgstr "依赖对"
+
+msgid "Description"
+msgstr "描述"
+
+msgid "Description:"
+msgstr "描述："
+
+msgid "Diagnose"
+msgstr "诊断"
+
+msgid "Digits"
+msgstr "数字"
+
+msgid "Direct Command Execution"
+msgstr "直接命令执行"
+
+msgid "Disable + Stop"
+msgstr "禁用并停止"
+
+msgid "Disable Auto-Login"
+msgstr "禁用自动登录"
+
+msgid "Disable DHCP Server on LAN"
+msgstr "关闭 LAN 的 DHCP 服务器"
+
+msgid "Disable root auto-login and return to /bin/login prompt?"
+msgstr "禁用 root 自动登录并返回 /bin/login 提示？"
+
+msgid "Disabled Services"
+msgstr "已禁用服务"
+
+msgid "Disabled services"
+msgstr "已禁用服务"
+
+msgid "Discard ALL pending UCI changes?"
+msgstr "放弃所有待处理的 UCI 变更？"
+
+msgid "Discard All"
+msgstr "全部丢弃"
+
+msgid "Discard unsaved changes to this tab?"
+msgstr "放弃此标签页的未保存更改？"
+
+msgid "Disconnected"
+msgstr "已断开"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Done."
+msgstr "完成。"
+
+msgid "Download Config Backup"
+msgstr "下载配置备份"
+
+msgid "Download Log"
+msgstr "下载日志"
+
+msgid "Duplicate"
+msgstr "重复"
+
+msgid "E.g. \"1h\", \"30m\", \"12h\". Minimum is \"2m\"."
+msgstr "例如 “1h”、“30m”、“12h”。最短为 “2m”。"
+
+msgid "Edit Custom Script"
+msgstr "编辑自定义脚本"
+
+msgid "Edit Custom Script2"
+msgstr "编辑自定义脚本2"
+
+msgid "Either access LuCI over HTTPS, or disable SSL in the ttyd config below."
+msgstr "请通过 HTTPS 访问 LuCI，或在下方 ttyd 配置中禁用 SSL。"
+
+msgid "Emergency (1)"
+msgstr "紧急 (1)"
+
+msgid "Empty"
+msgstr "空"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Enable + Start"
+msgstr "启用并启动"
+
+msgid "Enable Auto-Login"
+msgstr "启用自动登录"
+
+msgid "Enable DNS notification to clients"
+msgstr "向客户端推送 DNS"
+
+msgid "Enable IPv6"
+msgstr "启用 IPv6"
+
+msgid "Enable SYN-flood defense"
+msgstr "启用 SYN-flood 防护"
+
+msgid "Enable guest network."
+msgstr "启用访客网络。"
+
+msgid "Enable root auto-login? This bypasses the login prompt."
+msgstr "启用 root 自动登录？这将跳过登录提示。"
+
+msgid "Enable, disable, restart, or check any service on the router."
+msgstr "启用、禁用、重启或查看路由器上任意服务。"
+
+msgid "Enabled"
+msgstr "启用"
+
+msgid "Enabled Services"
+msgstr "已启用服务"
+
+msgid "Enabled services"
+msgstr "已启用服务"
+
+msgid "Encryption"
+msgstr "加密"
+
+msgid "Enforce HTTPS redirect"
+msgstr "强制 HTTPS 重定向"
+
+msgid "Enhanced Open"
+msgstr "增强型开放"
+
+msgid "Ensure ttyd is bound to loopback or LAN-only and your network is trusted."
+msgstr "请确保 ttyd 绑定到 loopback 或仅限 LAN，且你的网络可信。"
+
+msgid "Enter a package name"
+msgstr "请输入软件包名"
+
+msgid "Enter service name"
+msgstr "请输入服务名"
+
+msgid "Error"
+msgstr "错误"
+
+msgid "Error (4)"
+msgstr "错误 (4)"
+
+msgid "Error saving configuration:"
+msgstr "保存配置时出错："
+
+msgid "Error:"
+msgstr "错误: "
+
+msgid "Errors"
+msgstr "错误"
+
+msgid "Errors only"
+msgstr "仅错误"
+
+msgid "Essential"
+msgstr "常用"
+
+msgid "Essential Buttons"
+msgstr "常用按钮"
+
+msgid "Essential operations. Use ▲▼ arrows to reorder. Edit in Configuration tab."
+msgstr "常用操作。使用 ▲▼ 箭头调整顺序。在“配置”标签页中编辑。"
+
+msgid "Execute commands when a logical interface goes up, down, or changes state."
+msgstr "当逻辑接口上线、下线或状态变化时执行命令。"
+
+msgid "Executing"
+msgstr "执行中"
+
+msgid "Exit code: %s"
+msgstr "退出码：%s"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Failures before interface reset"
+msgstr "接口重置前的失败次数"
+
+msgid "Failures before reboot"
+msgstr "重启前的失败次数"
+
+msgid "February"
+msgstr "二月"
+
+msgid "Fetching %s dependencies..."
+msgstr "正在获取 %s 的依赖…"
+
+msgid "Fetching dependency pairs..."
+msgstr "正在获取依赖对…"
+
+msgid "Fiber/DSL broadband with username/password."
+msgstr "光纤/DSL 宽带，使用用户名/密码。"
+
+msgid "Fiber/DSL. Requires username & password."
+msgstr "光纤/DSL。需要用户名和密码。"
+
+msgid "Finish configuration in WAN Settings."
+msgstr "请在 WAN 设置中完成配置。"
+
+msgid "Firewall"
+msgstr "防火墙"
+
+msgid "Firewall & Security"
+msgstr "防火墙与安全"
+
+msgid "Firewall / Routing"
+msgstr "防火墙 / 路由"
+
+msgid "Firewall zone guest traffic is forwarded to (usually \"wan\"). Pick an existing zone from the list or fill out the <em>-- custom --</em> field to enter one manually."
+msgstr "访客流量转发的防火墙区域（通常为 “wan”）。从列表中选择现有区域，或填写 <em>-- 自定义 --</em> 字段手动输入。"
+
+msgid "Firmware"
+msgstr "固件"
+
+msgid "Firmware & System Settings"
+msgstr "固件与系统设置"
+
+msgid "Firmware settings updated."
+msgstr "固件设置已更新。"
+
+msgid "Firmware upgrade notices"
+msgstr "固件升级通知"
+
+msgid "Focus"
+msgstr "聚焦"
+
+msgid "Focus Terminal"
+msgstr "聚焦终端"
+
+msgid "Focus failed"
+msgstr "聚焦失败"
+
+msgid "Focused"
+msgstr "已聚焦"
+
+msgid "Force reconnect?"
+msgstr "强制重新连接？"
+
+msgid "Force reconnect? This will kill any stale ttyd sessions."
+msgstr "强制重连？这将清除任何僵死的 ttyd 会话。"
+
+msgid "Form error:"
+msgstr "表单错误："
+
+msgid "Form not ready"
+msgstr "表单未就绪"
+
+msgid "Forward"
+msgstr "转发"
+
+msgid "Forwarding destination zone"
+msgstr "转发目标区域"
+
+msgid "Friday"
+msgstr "星期五"
+
+msgid "GPIO / Hardware Buttons"
+msgstr "GPIO / 硬件按键"
+
+msgid "Generate"
+msgstr "生成"
+
+msgid "Generate QR…"
+msgstr "生成二维码…"
+
+msgid "Generate guest WiFi QR…"
+msgstr "正在生成访客 Wi-Fi 二维码…"
+
+msgid "Generate password"
+msgstr "生成密码"
+
+msgid "Generated cron entry:"
+msgstr "生成的 cron 条目："
+
+msgid "Generates a QR code with the guest network data (SSID, encryption, password) so a client device can scan and connect."
+msgstr "生成包含访客网络数据(SSID、加密方式、密码)的二维码,以便客户端设备扫描并连接。"
+
+msgid "Generator:"
+msgstr "生成器："
+
+msgid "Global Settings"
+msgstr "全局设置"
+
+msgid "Google DNS: 8.8.8.8"
+msgstr "Google DNS：8.8.8.8"
+
+msgid "Graphical Crontab Configurator"
+msgstr "图形化 Crontab 配置器"
+
+msgid "Group ID"
+msgstr "组 ID"
+
+msgid "Guest Wi-Fi"
+msgstr "访客 Wi-Fi"
+
+msgid "Guest WiFi"
+msgstr "访客 Wi-Fi"
+
+msgid "Guest WiFi configuration saved and applied."
+msgstr "访客 Wi-Fi 配置已保存并应用。"
+
+msgid "Guest WiFi form error:"
+msgstr "访客 Wi-Fi 表单错误："
+
+msgid "Guest WiFi runs in an isolated frame so this tab bar stays visible. Save & Apply works normally inside the frame."
+msgstr "访客 Wi-Fi 在隔离框架中运行，因此标签栏保持可见。保存并应用在框架内正常工作。"
+
+msgid "Guest networks"
+msgstr "访客网络"
+
+msgid "Handlers regenerated."
+msgstr "处理脚本已重新生成。"
+
+msgid "High"
+msgstr "高"
+
+msgid "Hotplug"
+msgstr "热插拔"
+
+msgid "Hotplug Rules"
+msgstr "Hotplug 规则"
+
+msgid "Hotplug config saved and handlers regenerated."
+msgstr "Hotplug 配置已保存，处理脚本已重新生成。"
+
+msgid "Hotplug config saved, applied, and handlers regenerated."
+msgstr "Hotplug 配置已保存、应用，处理脚本已重新生成。"
+
+msgid "Hotplug error:"
+msgstr "Hotplug 错误："
+
+msgid "Hour"
+msgstr "小时"
+
+msgid "Hour(0~23)"
+msgstr "小时(0~23)"
+
+msgid "I understand — rebuild my network config from scratch"
+msgstr "我已了解 — 从零重建网络配置"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "IPv6 →"
+msgstr "IPv6 → "
+
+msgid "Icon / Emoji"
+msgstr "图标 / Emoji"
+
+msgid "Index"
+msgstr "首页"
+
+msgid "Info"
+msgstr "信息"
+
+msgid "Info (7)"
+msgstr "信息 (7)"
+
+msgid "Input"
+msgstr "输入"
+
+msgid "Installed Packages"
+msgstr "已安装软件包"
+
+msgid "Interface"
+msgstr "接口"
+
+msgid "Interface Events"
+msgstr "接口事件"
+
+msgid "Interface IP address"
+msgstr "接口IP地址"
+
+msgid "Interface changed"
+msgstr "接口已变更"
+
+msgid "Interface created"
+msgstr "接口已创建"
+
+msgid "Interface down"
+msgstr "接口离线"
+
+msgid "Interface received link"
+msgstr "接口已收到链路"
+
+msgid "Interface reload"
+msgstr "接口重载"
+
+msgid "Interface removed"
+msgstr "接口已移除"
+
+msgid "Interface up"
+msgstr "接口在线"
+
+msgid "Interface up failed"
+msgstr "接口上线失败"
+
+msgid "Internet may drop briefly."
+msgstr "互联网可能会短暂中断。"
+
+msgid "Invalid package name"
+msgstr "无效的软件包名"
+
+msgid "Invalid service name"
+msgstr "无效的服务名"
+
+msgid "January"
+msgstr "一月"
+
+msgid "July"
+msgstr "七月"
+
+msgid "June"
+msgstr "六月"
+
+msgid "Kernel (dmesg)"
+msgstr "内核日志 (dmesg)"
+
+msgid "Kernel messages"
+msgstr "内核消息"
+
+msgid "Killing stale ttyd sessions..."
+msgstr "正在清理过期的 ttyd 会话…"
+
+msgid "LAN DHCP →"
+msgstr "LAN DHCP → "
+
+msgid "LAN DNS set"
+msgstr "LAN DNS 设置"
+
+msgid "LAN GW →"
+msgstr "LAN 网关 → "
+
+msgid "LAN Gateway (upstream router IP)"
+msgstr "LAN 网关（上游路由器 IP）"
+
+msgid "LAN IP Address Changed"
+msgstr "LAN IP 地址已更改"
+
+msgid "LAN IP address mode"
+msgstr "LAN IP 地址模式"
+
+msgid "LAN IP →"
+msgstr "LAN IP → "
+
+msgid "LAN IP:"
+msgstr "LAN IP："
+
+msgid "LAN IPv4 Address"
+msgstr "LAN IPv4 地址"
+
+msgid "LAN IPv4 Netmask"
+msgstr "LAN IPv4 子网掩码"
+
+msgid "LAN custom DNS (comma-separated)"
+msgstr "LAN 自定义 DNS（逗号分隔）"
+
+msgid "LAN mask →"
+msgstr "LAN 子网掩码 → "
+
+msgid "LAN proto →"
+msgstr "LAN 协议 → "
+
+msgid "LAN: %s"
+msgstr "LAN：%s"
+
+msgid "LEDs off:"
+msgstr "关闭 LED："
+
+msgid "Label"
+msgstr "标签"
+
+msgid "Label Keyword"
+msgstr "标签关键词"
+
+msgid "Landing page"
+msgstr "落地页"
+
+msgid "Language"
+msgstr "语言"
+
+msgid "Language Error"
+msgstr "语言错误"
+
+msgid "Language Switcher:"
+msgstr "语言切换："
+
+msgid "Last 50 lines"
+msgstr "最近 50 行"
+
+msgid "Last 50 log lines"
+msgstr "最近 50 行日志"
+
+msgid "List All Dependencies"
+msgstr "列出所有依赖"
+
+msgid "List All Packages"
+msgstr "列出所有软件包"
+
+msgid "List Backups"
+msgstr "列出备份"
+
+msgid "List Installed"
+msgstr "列出已安装"
+
+msgid "Listing all packages..."
+msgstr "正在列出所有软件包…"
+
+msgid "Listing dependencies..."
+msgstr "正在列出依赖…"
+
+msgid "Lists every installed package and its full dependency tree. Output may be large."
+msgstr "列出每个已安装软件包及其完整依赖树。输出可能很大。"
+
+msgid "Live Status, Commands & Controls"
+msgstr "实时状态、命令与控制"
+
+msgid "Loading %s..."
+msgstr "正在加载 %s…"
+
+msgid "Loading configuration..."
+msgstr "正在加载配置…"
+
+msgid "Loading dependencies..."
+msgstr "正在加载依赖…"
+
+msgid "Loading hotplug form..."
+msgstr "正在加载 hotplug 表单…"
+
+msgid "Loading network config..."
+msgstr "正在加载网络配置…"
+
+msgid "Loading ttyd configuration..."
+msgstr "正在加载 ttyd 配置…"
+
+msgid "Log Viewer"
+msgstr "日志查看器"
+
+msgid "Log cleared."
+msgstr "日志已清除。"
+
+msgid "Log is empty."
+msgstr "日志为空。"
+
+msgid "Log level"
+msgstr "日志级别"
+
+msgid "Log level set to %s — reloading..."
+msgstr "日志级别已设为 %s — 正在重新加载…"
+
+msgid "Login Required"
+msgstr "需要登录"
+
+msgid "Logs"
+msgstr "日志"
+
+msgid "Logs and Debugging"
+msgstr "日志与调试"
+
+msgid "Low"
+msgstr "低"
+
+msgid "Lowercase letters"
+msgstr "小写字母"
+
+msgid "Lowest leased address, as offset from the network address."
+msgstr "最低的租用地址，作为网络地址的偏移量。"
+
+msgid "LuCI Path"
+msgstr "LuCI 路径"
+
+msgid "MAC address"
+msgstr "MAC 地址"
+
+msgid "Manage all sections. Use Order field to control sequence (lower = first)."
+msgstr "管理所有分区。使用排序字段控制顺序（数值越小越靠前）。"
+
+msgid "Map keywords to init services."
+msgstr "将关键词映射到 init 服务。"
+
+msgid "March"
+msgstr "三月"
+
+msgid "Matches the original wizard: DELETES and RECREATES WAN, wan6, lan6, and the WAN firewall zone. Custom WAN routes / WAN firewall rules / WAN forwarding rules will be lost. A backup is taken automatically."
+msgstr "与原始向导一致：删除并重建 WAN、wan6、lan6 和 WAN 防火墙区域。自定义 WAN 路由 / WAN 防火墙规则 / WAN 转发规则将丢失。系统会自动创建备份。"
+
+msgid "Max clients"
+msgstr "最大客户端数量"
+
+msgid "Maximum number of leased addresses."
+msgstr "最大地址分配数量。"
+
+msgid "May"
+msgstr "五月"
+
+msgid "Medium"
+msgstr "一般"
+
+msgid "Minimum length is 8 characters, 13 characters recommended."
+msgstr "最小长度为8个字符,建议使用13个字符。"
+
+msgid "Minute"
+msgstr "分钟"
+
+msgid "Minute(0~59)"
+msgstr "分钟(0~59)"
+
+msgid "Miscellaneous"
+msgstr "杂项"
+
+msgid "Mixed Mode"
+msgstr "Mixed 模式"
+
+msgid "Mixed content block:"
+msgstr "混合内容阻止："
+
+msgid "Mode Selection"
+msgstr "模式选择"
+
+msgid "Mode set"
+msgstr "模式已设置"
+
+msgid "Mode →"
+msgstr "模式 → "
+
+msgid "Mode: %s"
+msgstr "模式：%s"
+
+msgid "Modern Flat"
+msgstr "现代扁平"
+
+msgid "Monday"
+msgstr "星期一"
+
+msgid "Month"
+msgstr "月份"
+
+msgid "Month(0~11)"
+msgstr "月份(0~11)"
+
+msgid "More Characters"
+msgstr "过短"
+
+msgid "Move down"
+msgstr "下移"
+
+msgid "Move up"
+msgstr "上移"
+
+msgid "NAS"
+msgstr "NAS"
+
+msgid "Navigation Shortcuts"
+msgstr "导航快捷方式"
+
+msgid "Netmask"
+msgstr "网络掩码"
+
+msgid "Network Diagnostics"
+msgstr "网络诊断"
+
+msgid "Network Setup"
+msgstr "网络设置"
+
+msgid "Network Setup error:"
+msgstr "网络设置错误："
+
+msgid "Network interface to bind (e.g. br-lan, lo)"
+msgstr "要绑定的网络接口（例如 br-lan、lo）"
+
+msgid "Network name (SSID)"
+msgstr "网络名称 (SSID)"
+
+msgid "Network settings updated."
+msgstr "网络设置已更新。"
+
+msgid "New LAN IP:"
+msgstr "新 LAN IP："
+
+msgid "New Password"
+msgstr "新密码"
+
+msgid "Next-NAS"
+msgstr "Next-NAS"
+
+msgid "No"
+msgstr "否"
+
+msgid "No AP wireless interfaces found."
+msgstr "未找到 AP 无线接口。"
+
+msgid "No backups yet."
+msgstr "还没有备份。"
+
+msgid "No changes"
+msgstr "无变更"
+
+msgid "No command"
+msgstr "没有命令"
+
+msgid "No custom commands. Add them in System > Custom Commands first."
+msgstr "没有自定义命令。请先在“系统 > 自定义命令”中添加。"
+
+msgid "No encryption (open network)"
+msgstr "不加密（开放网络）"
+
+msgid "No essential buttons. Add them in the Configuration tab."
+msgstr "没有常用按钮。请在“配置”标签页中添加。"
+
+msgid "No pending changes."
+msgstr "没有待处理的变更。"
+
+msgid "No shortcuts yet."
+msgstr "还没有快捷方式。"
+
+msgid "No shortcuts."
+msgstr "没有快捷方式。"
+
+msgid "No themes detected"
+msgstr "未检测到主题"
+
+msgid "No wireless devices detected."
+msgstr "未检测到无线设备。"
+
+msgid "Nothing to apply"
+msgstr "没有可应用的内容"
+
+msgid "Nothing to save."
+msgstr "没有可保存的内容。"
+
+msgid "Notice"
+msgstr "通知"
+
+msgid "Notice (6)"
+msgstr "通知 (6)"
+
+msgid "November"
+msgstr "十一月"
+
+msgid "Now fill in WAN Settings."
+msgstr "现在请填写 WAN 设置。"
+
+msgid "OWE (%s)"
+msgstr "OWE（%s）"
+
+msgid "October"
+msgstr "十月"
+
+msgid "Once"
+msgstr "一次"
+
+msgid "Only fields you change are written. Backup taken before every apply. Aggressive rebuild available in Advanced."
+msgstr "只写入你修改的字段。每次应用前都会备份。高级选项中可进行激进重建。"
+
+msgid "Open"
+msgstr "开放"
+
+msgid "Open in new tab ↗"
+msgstr "在新标签页打开 ↗"
+
+msgid "OpenWrt Command Reference"
+msgstr "OpenWrt 命令参考"
+
+msgid "OpenWrt cron is BusyBox cron — logs go to syslog at current system level."
+msgstr "OpenWrt cron 即 BusyBox cron，日志会按当前系统级别写入 syslog。"
+
+msgid "OpenWrt cron is BusyBox crond. Edit /etc/crontabs/root directly if needed."
+msgstr "OpenWrt cron 即 BusyBox crond。如需可直接编辑 /etc/crontabs/root。"
+
+msgid "Order"
+msgstr "排序"
+
+msgid "Output"
+msgstr "输出"
+
+msgid "Override URL in Terminal tab (for reverse proxy)"
+msgstr "在终端标签页中覆盖 URL（用于反向代理）"
+
+msgid "Override default MAC address - the range of usable addresses might be limited by the driver"
+msgstr "重设默认 MAC 地址 - 可用地址的范围可能受限于驱动"
+
+msgid "PPPoE Dial-up"
+msgstr "宽带拨号 (PPPoE)"
+
+msgid "PPPoE Internet Setup"
+msgstr "PPPoE 上网设置"
+
+msgid "PPPoE Password"
+msgstr "宽带密码"
+
+msgid "PPPoE Setup"
+msgstr "PPPoE 设置"
+
+msgid "PPPoE Username"
+msgstr "宽带账号"
+
+msgid "PPPoE password"
+msgstr "PPPoE 密码"
+
+msgid "PPPoE user: %s"
+msgstr "PPPoE 用户：%s"
+
+msgid "PPPoE username"
+msgstr "PPPoE 用户名"
+
+msgid "Package Dependency Inspector"
+msgstr "软件包依赖检查器"
+
+msgid "Package Management"
+msgstr "软件包管理"
+
+msgid "Package dependencies"
+msgstr "软件包依赖"
+
+msgid "Package name (leave blank to list all)"
+msgstr "软件包名（留空列出全部）"
+
+msgid "Package summary"
+msgstr "软件包摘要"
+
+msgid "Password"
+msgstr "密码"
+
+msgid "Password changed. Log in again."
+msgstr "密码已修改，请重新登录。"
+
+msgid "Password composition"
+msgstr "密码组成"
+
+msgid "Password length"
+msgstr "密码长度"
+
+msgid "Password must be at least 8 characters long (WPA-PSK/WPA2-PSK/WPA3-SAE)."
+msgstr "密码长度必须至少为 8 个字符 (WPA-PSK/WPA2-PSK/WPA3-SAE)。"
+
+msgid "Password must be ≥ 8 chars."
+msgstr "密码必须 ≥ 8 个字符。"
+
+msgid "Password strength"
+msgstr "密码强度"
+
+msgid "Password too short."
+msgstr "密码太短。"
+
+msgid "Passwords do not match."
+msgstr "两次输入的密码不一致。"
+
+msgid "Persistent login cookies"
+msgstr "持久化登录 Cookie"
+
+msgid "Pick time units, type a command, preview the generated cron line, then add it."
+msgstr "选择时间单位，输入命令，预览生成的 cron 行，然后添加。"
+
+msgid "Ping interface"
+msgstr "Ping 接口"
+
+msgid "Ping test hosts through an interface. After consecutive failures, reset the interface or reboot."
+msgstr "通过接口对测试主机执行 Ping。连续失败达到阈值后，重置接口或重启。"
+
+msgid "Please enter the command"
+msgstr "请输入命令"
+
+msgid "Polling Interval (seconds)"
+msgstr "轮询间隔（秒）"
+
+msgid "Port"
+msgstr "端口 "
+
+msgid "Port to listen (default: 7681, use 0 for random)"
+msgstr "监听端口（默认 7681，填 0 表示随机）"
+
+msgid "Preview:"
+msgstr "预览："
+
+msgid "Proceed?"
+msgstr "是否继续？"
+
+msgid "Process Management"
+msgstr "进程管理"
+
+msgid "QR Code"
+msgstr "二维码"
+
+msgid "QR Error Correction Code Level"
+msgstr "二维码错误纠正级别"
+
+msgid "Quartile"
+msgstr "四分之一"
+
+msgid "Quick Actions"
+msgstr "快捷操作"
+
+msgid "Quick Actions Configuration"
+msgstr "快捷操作配置"
+
+msgid "Quick Navigation Shortcuts"
+msgstr "快速导航快捷方式"
+
+msgid "Radio"
+msgstr "射频"
+
+msgid "Random ttyd port not supported. Set a fixed port below."
+msgstr "不支持随机 ttyd 端口。请在下方设置固定端口。"
+
+msgid "Read-only"
+msgstr "只读"
+
+msgid "Reboot Router"
+msgstr "重启路由器"
+
+msgid "Reboot in 5 min:"
+msgstr "5 分钟后重启："
+
+msgid "Recent cron log"
+msgstr "最近 cron 日志"
+
+msgid "Recommended for siderouter mode."
+msgstr "推荐用于旁路由模式。"
+
+msgid "Reconfigure WAN as PPPoE with user \"%s\"?"
+msgstr "重新将 WAN 配置为 PPPoE，用户为 \"%s\"？"
+
+msgid "Reconnect"
+msgstr "重新连接"
+
+msgid "Reconnected"
+msgstr "已重新连接"
+
+msgid "Redirect Now"
+msgstr "立即转向"
+
+msgid "Redirecting in"
+msgstr "将在 "
+
+msgid "Regenerate Handlers"
+msgstr "重新生成处理脚本"
+
+msgid "Regenerate hotplug handler scripts from /etc/config/hotplug?"
+msgstr "从 /etc/config/hotplug 重新生成 hotplug 处理脚本？"
+
+msgid "Regenerated"
+msgstr "已重新生成"
+
+msgid "Regenerating handlers..."
+msgstr "正在重新生成处理脚本…"
+
+msgid "Remarks"
+msgstr "备注"
+
+msgid "Reorder field controls display order."
+msgstr "排序字段控制显示顺序。"
+
+msgid "Reordered"
+msgstr "已重新排序"
+
+msgid "Require Confirmation"
+msgstr "需要确认"
+
+msgid "Requires uhttpd SSL or nginx."
+msgstr "需要 uhttpd SSL 或 nginx。"
+
+msgid "Reset"
+msgstr "复位"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Restart Cron"
+msgstr "重启 Cron"
+
+msgid "Restart cron"
+msgstr "重启 cron"
+
+msgid "Restart failed: %s"
+msgstr "重启失败：%s"
+
+msgid "Restore"
+msgstr "还原"
+
+msgid "Restore failed"
+msgstr "恢复失败"
+
+msgid "Restore from %s?"
+msgstr "从 %s 恢复？"
+
+msgid "Restored"
+msgstr "已恢复"
+
+msgid "Reverse Order"
+msgstr "反向显示"
+
+msgid "Reverted"
+msgstr "已撤销"
+
+msgid "Router"
+msgstr "路由器"
+
+msgid "RouterDog"
+msgstr "RouterDog"
+
+msgid "Rules are stored in UCI and regenerated into /etc/hotplug.d/iface/91-qa-hp-* on save."
+msgstr "规则保存在 UCI 中，保存时会重新生成 /etc/hotplug.d/iface/91-qa-hp-*。"
+
+msgid "Rules are stored in UCI. After Save & Apply, click Regenerate to write the handler scripts into /etc/hotplug.d/iface/."
+msgstr "规则保存在 UCI 中。保存并应用后，点击重新生成将处理脚本写入 /etc/hotplug.d/iface/。"
+
+msgid "Run Command"
+msgstr "运行命令"
+
+msgid "Run CoreMark on boot"
+msgstr "开机运行 CoreMark"
+
+msgid "Run commands on network interface events or when connectivity monitors fail. Replaces luci-app-hotplug."
+msgstr "在网口事件或连通性监控失败时执行命令。替代 luci-app-hotplug。"
+
+msgid "Run shell commands as root. Output in notification."
+msgstr "以 root 身份运行 shell 命令。输出以通知显示。"
+
+msgid "Run this command?"
+msgstr "运行此命令？"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "Runs at"
+msgstr "运行于"
+
+msgid "Runs once into /etc/bench.log."
+msgstr "开机后运行一次，输出到 /etc/bench.log。"
+
+msgid "SSID required."
+msgstr "SSID 必填。"
+
+msgid "SSL"
+msgstr "SSL"
+
+msgid "SSL CA"
+msgstr "SSL CA"
+
+msgid "SSL cert"
+msgstr "SSL 证书"
+
+msgid "SSL key"
+msgstr "SSL 密钥"
+
+msgid "SYN-flood →"
+msgstr "SYN-flood → "
+
+msgid "Saturday"
+msgstr "星期六"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Save & Apply"
+msgstr "保存并应用"
+
+msgid "Save & Apply All"
+msgstr "保存并应用全部"
+
+msgid "Save & Apply Hotplug"
+msgstr "保存并应用 Hotplug"
+
+msgid "Save & Apply Scheduled Tasks"
+msgstr "保存并应用定时任务"
+
+msgid "Save & Apply Startup Tasks"
+msgstr "保存并应用启动任务"
+
+msgid "Save & Restart ttyd"
+msgstr "保存并重启 ttyd"
+
+msgid "Save Firmware Settings"
+msgstr "保存固件设置"
+
+msgid "Save Guest WiFi"
+msgstr "保存访客 WiFi"
+
+msgid "Save WAN Settings (smart diff)"
+msgstr "保存 WAN 设置（智能差异）"
+
+msgid "Save WAN changes?"
+msgstr "保存 WAN 变更？"
+
+msgid "Save Wireless"
+msgstr "保存无线设置"
+
+msgid "Save and apply guest WiFi configuration?"
+msgstr "保存并应用访客 Wi-Fi 配置？"
+
+msgid "Save failed:"
+msgstr "保存失败: "
+
+msgid "Save firmware settings?"
+msgstr "保存固件设置？"
+
+msgid "Save hotplug config and regenerate handlers?"
+msgstr "保存 hotplug 配置并重新生成处理脚本？"
+
+msgid "Save scheduled tasks and apply?"
+msgstr "保存并应用定时任务？"
+
+msgid "Save startup tasks and apply?"
+msgstr "保存并应用启动任务？"
+
+msgid "Save ttyd config and restart the service?"
+msgstr "保存 ttyd 配置并重启服务？"
+
+msgid "Saved"
+msgstr "已保存"
+
+msgid "Saving"
+msgstr "保存中"
+
+msgid "Scan this QR code with the client device."
+msgstr "用客户端设备扫描此二维码。"
+
+msgid "Scheduled Clearmem"
+msgstr "定时清理内存"
+
+msgid "Scheduled Closewan"
+msgstr "定时关闭WAN"
+
+msgid "Scheduled Customscript"
+msgstr "定时 自定义脚本"
+
+msgid "Scheduled Customscript2"
+msgstr "定时 自定义脚本2"
+
+msgid "Scheduled DisReconn"
+msgstr "定时断网重连"
+
+msgid "Scheduled DisRereboot"
+msgstr "定时断网重启"
+
+msgid "Scheduled Poweroff"
+msgstr "定时关机"
+
+msgid "Scheduled ReNetwork"
+msgstr "定时重启网络"
+
+msgid "Scheduled Reboot"
+msgstr "定时重启"
+
+msgid "Scheduled RestartSamba"
+msgstr "定时重启Samba"
+
+msgid "Scheduled Restartmwan3"
+msgstr "定时重启MWAN3"
+
+msgid "Scheduled Restartwan"
+msgstr "定时重启WAN"
+
+msgid "Scheduled Sysfree"
+msgstr "定时系统清理"
+
+msgid "Scheduled Tasks"
+msgstr "计划任务"
+
+msgid "Scheduled Type"
+msgstr "定时类型"
+
+msgid "Scheduled Wifidown"
+msgstr "定时关闭WiFi"
+
+msgid "Scheduled Wifiup"
+msgstr "定时开启WiFi"
+
+msgid "Scheduled and startup tasks. Presets include reboot, shutdown, network restart, memory cleanup, custom scripts."
+msgstr "定时任务与开机任务。预设包括重启、关机、网络重启、内存清理、自定义脚本等。"
+
+msgid "Scheduled tasks applied."
+msgstr "定时任务已应用。"
+
+msgid "Select Network Mode"
+msgstr "选择网络模式"
+
+msgid "Select password components..."
+msgstr "选择密码组成部分..."
+
+msgid "Send option to client"
+msgstr "发送选项到客户端"
+
+msgid "September"
+msgstr "九月"
+
+msgid "Service Control"
+msgstr "服务控制"
+
+msgid "Service Lists"
+msgstr "服务列表"
+
+msgid "Service Mappings"
+msgstr "服务映射"
+
+msgid "Service Mode Applier"
+msgstr "服务模式应用"
+
+msgid "Service Name"
+msgstr "服务名称"
+
+msgid "Services"
+msgstr "服务"
+
+msgid "Set log level"
+msgstr "设置日志级别"
+
+msgid "Shell Command"
+msgstr "Shell 命令"
+
+msgid "Shell commands for [Customscript2] task type"
+msgstr "【自定义脚本2】任务类型的Shell命令"
+
+msgid "Shell commands for [Customscript] task type"
+msgstr "【自定义脚本】任务类型的Shell命令"
+
+msgid "Shortcut must be alphanumeric."
+msgstr "快捷方式必须是字母数字。"
+
+msgid "Shortcuts"
+msgstr "快捷方式"
+
+msgid "Shortcuts (nginx + dnsmasq)"
+msgstr "快捷方式（nginx + dnsmasq）"
+
+msgid "Shortcuts require nginx. Install nginx package to enable."
+msgstr "快捷方式需要 nginx。请安装 nginx 软件包以启用。"
+
+msgid "Show Dependencies"
+msgstr "显示依赖"
+
+msgid "Show Recent Cron Log"
+msgstr "显示最近 Cron 日志"
+
+msgid "Show Status"
+msgstr "显示状态"
+
+msgid "Show System Summary"
+msgstr "显示系统摘要"
+
+msgid "Shutdown"
+msgstr "关机"
+
+msgid "Side-Router"
+msgstr "旁路由"
+
+msgid "Signal"
+msgstr "信号强度"
+
+msgid "Signal to send to command on exit (default: 1)"
+msgstr "命令退出时要发送的信号（默认 1）"
+
+msgid "Silent (0)"
+msgstr "静默 (0)"
+
+msgid "Smart mode:"
+msgstr "智能模式："
+
+msgid "Special characters"
+msgstr "特殊字符"
+
+msgid "Startup Tasks"
+msgstr "开机启动任务"
+
+msgid "Startup Type"
+msgstr "启动类型"
+
+msgid "Startup tasks applied."
+msgstr "启动任务已应用。"
+
+msgid "Static IP"
+msgstr "静态 IP"
+
+msgid "Storage & Filesystem"
+msgstr "存储与文件系统"
+
+msgid "Strong"
+msgstr "强"
+
+msgid "Success"
+msgstr "成功"
+
+msgid "Sunday"
+msgstr "星期日"
+
+msgid "Switch mode to \"%s\"?"
+msgstr "切换到模式 \"%s\"？"
+
+msgid "Switching to %s..."
+msgstr "正在切换到 %s…"
+
+msgid "System Information"
+msgstr "系统信息"
+
+msgid "System Log Level"
+msgstr "系统日志级别"
+
+msgid "System Package Summary"
+msgstr "系统软件包摘要"
+
+msgid "Tactile 3D"
+msgstr "触感 3D"
+
+msgid "Target Service"
+msgstr "目标服务"
+
+msgid "Task Plan"
+msgstr "任务计划"
+
+msgid "Task Plan error:"
+msgstr "任务计划错误："
+
+msgid "Tasks to run after boot, with a delay in seconds."
+msgstr "开机后延迟指定秒数运行的任务。"
+
+msgid "Terminal"
+msgstr "终端"
+
+msgid "Terminal (ttyd):"
+msgstr "终端 (ttyd)："
+
+msgid "Terminal already requires login (%s)."
+msgstr "终端已需要登录（%s）。"
+
+msgid "Terminal focused. Start typing to interact."
+msgstr "终端已聚焦。开始输入以交互。"
+
+msgid "Terminal idle"
+msgstr "终端空闲"
+
+msgid "Terminal iframe not found."
+msgstr "未找到终端 iframe。"
+
+msgid "Terminal service restarted. If blank, click Reconnect again."
+msgstr "终端服务已重启。如果空白，请再次点击重新连接。"
+
+msgid "Terminal type"
+msgstr "终端类型"
+
+msgid "Test hosts"
+msgstr "测试主机"
+
+msgid "The address %s is already in use and no free address is available in the 172.16.0.1 - 172.31.0.1 range."
+msgstr "地址 %s 已在使用中，且在 172.16.0.1 - 172.31.0.1 范围内没有可用的空闲地址。"
+
+msgid "The logical interface to watch (e.g. wan, lan)"
+msgstr "要监视的逻辑接口（例如 wan、lan）"
+
+msgid "The radio on which the guest network will work."
+msgstr "访客网络将工作的无线射频。"
+
+msgid "The terminal session expired. Click \"Reconnect Terminal\" above to resume."
+msgstr "终端会话已过期。点击上方的“重新连接终端”以恢复。"
+
+msgid "The terminal session expired. Click Reconnect to resume."
+msgstr "终端会话已过期。点击重新连接以恢复。"
+
+msgid "Theme"
+msgstr "主题"
+
+msgid "Theme Diagnostic"
+msgstr "主题诊断"
+
+msgid "Theme Error"
+msgstr "主题错误"
+
+msgid "Theme Switcher:"
+msgstr "主题切换："
+
+msgid "This changes ttyd command to /bin/sh. Anyone who can reach port %s gets a root shell without credentials."
+msgstr "这将把 ttyd 命令改为 /bin/sh。任何能够访问端口 %s 的人都可以无需凭据获得 root shell。"
+
+msgid "This commits and applies everything, not just this page."
+msgstr "这会提交并应用所有内容，不仅限于本页面。"
+
+msgid "This entry already exists"
+msgstr "此条目已存在"
+
+msgid "This kills all ttyd sessions and restarts the service. Any open terminal in another tab will be disconnected."
+msgstr "这会结束所有 ttyd 会话并重启服务。其他标签页中打开的终端将被断开。"
+
+msgid "Thursday"
+msgstr "星期四"
+
+msgid "Tools"
+msgstr "工具"
+
+msgid "Traffic from guests to the router itself (e.g. LuCI, SSH)."
+msgstr "从访客到路由器本身的流量（例如：LuCI、SSH）。"
+
+msgid "Traffic from the router itself to guests. ACCEPT is recommended so router services (DHCP, DNS) keep working."
+msgstr "从路由器本身到访客的流量。建议设为 接受(ACCEPT)，以确保路由器服务（DHCP、DNS）正常工作。"
+
+msgid "Traffic passing between guests and other networks/zones (e.g. LAN). Keep this REJECT or DROP to isolate guests from your LAN. ACCEPT would allow guests to reach other networks."
+msgstr "访客与其他网络/区域（如 LAN）之间通过的流量。请保持为 拒绝(REJECT) 或 丢弃(DROP) 以将访客与您的 LAN 隔离。设为 接受(ACCEPT) 将允许访客访问其他网络。"
+
+msgid "Trigger event"
+msgstr "触发事件"
+
+msgid "Tuesday"
+msgstr "星期二"
+
+msgid "Type shortcut + \"/\" in any browser on this network → redirects."
+msgstr "在此网络的任意浏览器中输入快捷方式 + “/” → 跳转。"
+
+msgid "UCI Configuration"
+msgstr "UCI 配置"
+
+msgid "UDP port range for DHCP traffic, e.g. \"67-68\"."
+msgstr "DHCP 流量的 UDP 端口范围，例如 “67-68”。"
+
+msgid "UNIX socket"
+msgstr "UNIX 套接字"
+
+msgid "URL"
+msgstr "URL"
+
+msgid "URL must start with http(s)://"
+msgstr "URL 必须以 http(s):// 开头。"
+
+msgid "URL override"
+msgstr "URL 重写"
+
+msgid "Uppercase letters"
+msgstr "大写字母"
+
+msgid "Use router LAN IP (default)"
+msgstr "使用路由器 LAN IP（默认）"
+
+msgid "Useful One-Liners"
+msgstr "实用一键命令"
+
+msgid "User ID"
+msgstr "用户 ID"
+
+msgid "Username and password required."
+msgstr "需要用户名和密码。"
+
+msgid "WAN DNS set"
+msgstr "WAN DNS 设置"
+
+msgid "WAN GW"
+msgstr "WAN 网关"
+
+msgid "WAN IP address mode"
+msgstr "WAN IP 地址模式"
+
+msgid "WAN IP →"
+msgstr "WAN IP → "
+
+msgid "WAN IPv4 Address"
+msgstr "WAN IPv4 地址"
+
+msgid "WAN IPv4 Gateway"
+msgstr "WAN IPv4 网关"
+
+msgid "WAN IPv4 Netmask"
+msgstr "WAN IPv4 子网掩码"
+
+msgid "WAN Protocol / Mode"
+msgstr "WAN 协议 / 模式"
+
+msgid "WAN Settings"
+msgstr "WAN 设置"
+
+msgid "WAN Settings — %s"
+msgstr "WAN 设置 — %s"
+
+msgid "WAN custom DNS (comma-separated, empty = auto)"
+msgstr "WAN 自定义 DNS（逗号分隔，留空=自动）"
+
+msgid "WAN device →"
+msgstr "WAN 设备 → "
+
+msgid "WAN device:"
+msgstr "WAN 设备："
+
+msgid "WAN interface device"
+msgstr "WAN 接口设备"
+
+msgid "WAN mask"
+msgstr "WAN 子网掩码"
+
+msgid "WARNING: APs currently have DIFFERENT passwords. Saving will overwrite all of them with the new one."
+msgstr "警告：各 AP 当前密码不同。保存将用新密码覆盖所有 AP。"
+
+msgid "WEP Open System"
+msgstr "WEP 开放式系统"
+
+msgid "WEP Shared Key"
+msgstr "WEP 共享密钥"
+
+msgid "WEP key must be 5 or 13 ASCII characters, or 10 or 26 hexadecimal digits."
+msgstr "WEP 密钥必须是 5 或 13 个 ASCII 字符，或者是 10 或 26 个十六进制数字。"
+
+msgid "WPA-PSK/WPA2-PSK %s"
+msgstr "WPA-PSK/WPA2-PSK %s"
+
+msgid "WPA2-PSK is recommended for most devices. WPA3-SAE offers the strongest security but requires WPA3-capable clients."
+msgstr "推荐大多数设备使用 WPA2-PSK。WPA3-SAE 提供了最强的安全性，但需要客户端支持 WPA3。"
+
+msgid "WPA2-PSK/WPA3-SAE %s"
+msgstr "WPA2-PSK/WPA3-SAE %s"
+
+msgid "WPA2/WPA3 Mixed"
+msgstr "WPA2/WPA3 混合"
+
+msgid "Warning"
+msgstr "警告"
+
+msgid "Warning (5)"
+msgstr "警告 (5)"
+
+msgid "Warning: high-risk operation (%s)."
+msgstr "警告：高风险操作（%s）。"
+
+msgid "Weak"
+msgstr "弱"
+
+msgid "Wednesday"
+msgstr "星期三"
+
+msgid "Week Day(0~6)"
+msgstr "星期(0~6)"
+
+msgid "Weekday"
+msgstr "星期"
+
+msgid "WiFi Management"
+msgstr "Wi-Fi 管理"
+
+msgid "WiFi Off/On"
+msgstr "无线开关"
+
+msgid "Wireless"
+msgstr "无线"
+
+msgid "Wireless Settings"
+msgstr "无线设置"
+
+msgid "Wireless Tools"
+msgstr "无线工具"
+
+msgid "Wireless updated."
+msgstr "无线设置已更新。"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "Your APs currently have different passwords. Saving will overwrite every AP with the password entered above."
+msgstr "当前 AP 密码不一致。保存后将用上方输入的密码覆盖所有 AP。"
+
+msgid "accept"
+msgstr "接受"
+
+msgid "auto"
+msgstr "自动"
+
+msgid "change(s) applying..."
+msgstr " 项变更正在应用…"
+
+msgid "cookies →"
+msgstr "cookies → "
+
+msgid "coremark →"
+msgstr "coremark → "
+
+msgid "day: %s"
+msgstr "日：%s"
+
+msgid "debug"
+msgstr "调试"
+
+msgid "disable"
+msgstr "禁用"
+
+msgid "dnsmasq"
+msgstr "dnsmasq"
+
+msgid "down"
+msgstr "下方"
+
+msgid "driver default"
+msgstr "驱动默认"
+
+msgid "drop"
+msgstr "丢弃"
+
+msgid "e.g. Restart firewall on WAN up"
+msgstr "例如：WAN 上线时重启防火墙"
+
+msgid "e.g. df -h"
+msgstr "例如 df -h"
+
+msgid "e.g. dnsmasq, firewall, uhttpd"
+msgstr "例如 dnsmasq, firewall, uhttpd"
+
+msgid "e.g. luci-app-firewall"
+msgstr "例如 luci-app-firewall"
+
+msgid "enable"
+msgstr "启用"
+
+msgid "hour: %s"
+msgstr "时：%s"
+
+msgid "https →"
+msgstr "https → "
+
+msgid "key=value"
+msgstr "键=值"
+
+msgid "landing →"
+msgstr "落地页 → "
+
+msgid "minute"
+msgstr "分钟"
+
+msgid "minute: %s"
+msgstr "分：%s"
+
+msgid "month: %s"
+msgstr "月：%s"
+
+msgid "randomly generated"
+msgstr "随机生成"
+
+msgid "reject"
+msgstr "拒绝"
+
+msgid "reload"
+msgstr "重载"
+
+msgid "restart"
+msgstr "重启"
+
+msgid "seconds..."
+msgstr " 秒后重定向…"
+
+msgid "service"
+msgstr "服务"
+
+msgid "setlan →"
+msgstr "setlan → "
+
+msgid "start"
+msgstr "启动"
+
+msgid "stop"
+msgstr "停止"
+
+msgid "to Reconnect"
+msgstr "重新连接"
+
+msgid "ttyd Configuration"
+msgstr "ttyd 配置"
+
+msgid "ttyd Configuration — full settings"
+msgstr "ttyd 配置 — 完整设置"
+
+msgid "ttyd Instance"
+msgstr "ttyd 实例"
+
+msgid "ttyd config updated and service restarted."
+msgstr "ttyd 配置已更新，服务已重启。"
+
+msgid "ttyd error:"
+msgstr "ttyd 错误："
+
+msgid "ttyd is configured with SSL but you access LuCI over HTTP. The browser will refuse to load the terminal."
+msgstr "ttyd 已配置 SSL，但您通过 HTTP 访问 LuCI。浏览器将拒绝加载终端。"
+
+msgid "ttyd is disabled. Enable it below and save."
+msgstr "ttyd 已禁用。请在下方启用并保存。"
+
+msgid "up"
+msgstr "上方"
+
+msgid "upgrade notices →"
+msgstr "升级通知 → "
+
+msgid "weekday: %s"
+msgstr "周：%s"
+
+msgid "↗ Open in New Tab"
+msgstr "↗ 在新标签页打开"
+
+msgid "↻ Force Reconnect"
+msgstr "↻ 强制重连"
+
+msgid "↻ Reload"
+msgstr "↻ 重新加载"
+
+msgid "● CURRENT"
+msgstr "● 当前"
+
+msgid "⚠️ Aggressive Mode (opt-in)"
+msgstr "⚠️ 激进模式（需确认）"
+
+msgid "⚠️ Mixed content block:"
+msgstr "⚠️ 混合内容拦截："
+
+msgid "⚠️ WARNING: Enable root auto-login?"
+msgstr "⚠️ 警告：启用 root 自动登录？"
+
+msgid "🔒 Login Required"
+msgstr "🔒 需要登录"
+
+msgid "🔴 Auto-Login: ON"
+msgstr "🔴 自动登录：开启"
+

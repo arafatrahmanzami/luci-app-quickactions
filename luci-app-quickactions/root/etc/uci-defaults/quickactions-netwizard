@@ -1,7 +1,7 @@
 #!/bin/sh
-# Create seed configs only if missing. Do NOT touch network, firewall, dhcp, wireless.
+# Create wizard seed config only if missing. Do NOT touch network, firewall, dhcp, wireless.
+# /etc/config/netwizard is owned by luci-app-netwizard; do not seed it here.
 [ -f /etc/config/wizard ] || echo "config wizard 'default'" > /etc/config/wizard
-[ -f /etc/config/netwizard ] || printf "config netwizard 'default'\n\toption lan_netmask '255.255.255.0'\n" > /etc/config/netwizard
 
 # Ensure scripts are executable
 chmod +x /usr/libexec/quickactions-netwizard/*.sh 2>/dev/null

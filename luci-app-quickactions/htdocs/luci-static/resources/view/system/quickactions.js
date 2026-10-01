@@ -210,10 +210,10 @@ function radioBadge(section_id, radioName, wifiDevices) {
 let ENCRYPTION_MODES = [
 	['psk2',       'WPA2-PSK'],
 	['sae',        'WPA3-SAE'],
-	['sae-mixed',  'WPA2-PSK/WPA3-SAE ' + _('Mixed Mode')],
-	['psk-mixed',  'WPA-PSK/WPA2-PSK ' + _('Mixed Mode')],
+	['sae-mixed',  _('WPA2-PSK/WPA3-SAE %s').format(_('Mixed Mode'))],
+	['psk-mixed',  _('WPA-PSK/WPA2-PSK %s').format(_('Mixed Mode'))],
 	['psk',        'WPA-PSK'],
-	['owe',        'OWE (' + _('Enhanced Open') + ')'],
+	['owe',        _('OWE (%s)').format(_('Enhanced Open'))],
 	['wep-open',   _('WEP Open System')],
 	['wep-shared', _('WEP Shared Key')],
 	['none',       _('No encryption (open network)')]
@@ -1212,7 +1212,7 @@ return view.extend({
 			_('Override default MAC address - the range of usable addresses might be limited by the driver'));
 		o.value('', _('driver default'));
 		o.value('random', _('randomly generated'));
-		o.datatype = "or('random',macaddr)";
+		o.datatype = "or(random,macaddr)";
 		o.default = DEFAULTS.macaddr;
 		o.rmempty = true;
 		o.modalonly = true;
@@ -1312,7 +1312,8 @@ return view.extend({
         this.callSystemCommand = rpc.declare({ object: 'file', method: 'exec', params: [ 'command', 'params' ], expect: { '': {} } });
         return Promise.all([
             uci.load('quickactions').catch(function(){}),
-            uci.load('system').catch(function(){})
+            uci.load('system').catch(function(){}),
+            uci.load('luci').catch(function(){})
         ]).then(function() {
             var interval = uci.get('quickactions', 'global', 'poll_interval');
             self.pollInterval = parseInt(interval, 10) || 5;
@@ -1369,73 +1370,56 @@ return view.extend({
                 }
             }
             if (lines.length === 0) {
-                ui.addNotification('Nothing to apply', 'No pending changes.', 'info');
+                ui.addNotification(_('Nothing to apply'), _('No pending changes.'), 'info');
                 return;
             }
-            var preview = lines.slice(0, 20).join('\n') + (lines.length > 20 ? '\n... and ' + (lines.length - 20) + ' more' : '');
-            if (!confirm('Apply ALL pending changes system-wide?\n\n' + preview + '\n\nThis commits and applies everything, not just this page.')) return;
+            var preview = lines.slice(0, 20).join('\n') + (lines.length > 20 ? '\n' + _('... and %s more').format(lines.length - 20) : '');
+            if (!confirm(_('Apply ALL pending changes system-wide?') + '\n\n' + preview + '\n\n' + _('This commits and applies everything, not just this page.'))) return;
 
-            ui.addNotification('Applying', 'Committing ' + lines.length + ' change(s)...', 'info');
+            ui.addTimeLimitedNotification(_('Applying'), _('Committing %s change(s)...').format(lines.length), 8000, 'info');
             return uci.apply(10).then(function() {
-                ui.addNotification('Applied', 'All changes committed and applied.', 'info');
+                ui.addNotification(_('Applied'), _('All changes committed and applied.'), 'info');
                 self.refreshPendingCount();
             }).catch(function(err) {
-                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
             });
         });
     },
 
     fetchThemeList: function() {
-        var self = this;
-        // Multi-source theme detection (four independent methods)
-        var sh = 'ls -1 /www/luci-static/ 2>/dev/null; ' +
-                 'echo "---"; ' +
-                 'ls -1 /usr/lib/opkg/info/ 2>/dev/null | grep "^luci-theme-"; ' +
-                 'echo "---"; ' +
-                 'opkg list-installed 2>/dev/null | awk "/^luci-theme-/ {print \$1}"; ' +
-                 'apk list -I 2>/dev/null | grep -o "^luci-theme-[^ ]*"';
-
-        return this.callSystemCommand('/bin/sh', ['-c', sh]).then(function(r) {
-            var seen = {}, themes = [];
-            (r.stdout || '').split('\n').forEach(function(line) {
-                line = line.trim();
-                if (!line || line === '---') return;
-                var name = line
-                    .replace(/^luci-theme-/, '')
-                    .replace(/\.(list|control)$/, '')
-                    .trim();
-                if (['resources', 'fonts', 'index.css', 'index.css.gz', 'menu', 'loading.svg'].indexOf(name) !== -1) return;
-                if (/^[a-zA-Z0-9_\-]+$/.test(name) === false) return;
-                if (name.length < 2 || name.length > 32) return;
-                if (seen[name]) return;
-                seen[name] = 1;
-                themes.push(name);
-            });
-            return themes;
-        }).catch(function() { return []; });
+        // Same source as System -> Language & Style: luci.themes maps
+        // display name -> mediaurlbase, registered by each luci-theme-* package.
+        var map = uci.get('luci', 'themes') || {};
+        var list = [];
+        Object.keys(map).sort().forEach(function(name) {
+            var url = map[name];
+            if (typeof url === 'string' && url.indexOf('/luci-static/') === 0)
+                list.push({ name: name, url: url });
+        });
+        return Promise.resolve(list);
     },
 
-    handleThemeSwitch: function(themeKey) {
+    handleThemeSwitch: function(themeName, urlbase) {
         uci.load('luci').then(function() {
             var cur = uci.get('luci', 'main', 'mediaurlbase');
-            var nb = '/luci-static/' + themeKey;
-            if (cur === nb) { ui.addNotification('Theme', 'Already using "' + themeKey + '".', 'info'); return; }
-            ui.addNotification('Theme', 'Applying "' + themeKey + '"...', 'info');
+            var nb = urlbase || ('/luci-static/' + themeName.toLowerCase());
+            if (cur === nb) { ui.addNotification(_('Theme'), _('Already using "%s".').format(themeName), 'info'); return; }
+            ui.addTimeLimitedNotification(_('Theme'), _('Applying "%s"...').format(themeName), 8000, 'info');
             uci.set('luci', 'main', 'mediaurlbase', nb);
             uci.save().then(function() { return ui.changes.apply(false); }).then(function() { setTimeout(function() { window.location.reload(); }, 500); })
-              .catch(function(err) { ui.addNotification('Theme Error', (err && err.message) ? err.message : String(err), 'danger'); });
-        }).catch(function(err) { ui.addNotification('Theme Error', (err && err.message) ? err.message : String(err), 'danger'); });
+              .catch(function(err) { ui.addNotification(_('Theme Error'), (err && err.message) ? err.message : String(err), 'danger'); });
+        }).catch(function(err) { ui.addNotification(_('Theme Error'), (err && err.message) ? err.message : String(err), 'danger'); });
     },
 
     handleLanguageSwitch: function(langCode) {
         uci.load('luci').then(function() {
             var cur = uci.get('luci', 'main', 'lang') || 'en';
-            if (cur === langCode) { ui.addNotification('Language', 'Already set.', 'info'); return; }
-            ui.addNotification('Language', 'Switching to ' + langCode + '...', 'info');
+            if (cur === langCode) { ui.addNotification(_('Language'), _('Already set.'), 'info'); return; }
+            ui.addNotification(_('Language'), _('Switching to %s...').format(langCode), 'info');
             uci.set('luci', 'main', 'lang', langCode);
             uci.save().then(function() { return ui.changes.apply(false); }).then(function() { setTimeout(function() { window.location.reload(); }, 500); })
-              .catch(function(err) { ui.addNotification('Language Error', (err && err.message) ? err.message : String(err), 'danger'); });
-        }).catch(function(err) { ui.addNotification('Language Error', (err && err.message) ? err.message : String(err), 'danger'); });
+              .catch(function(err) { ui.addNotification(_('Language Error'), (err && err.message) ? err.message : String(err), 'danger'); });
+        }).catch(function(err) { ui.addNotification(_('Language Error'), (err && err.message) ? err.message : String(err), 'danger'); });
     },
 
     moveItem: function(section, name, direction) {
@@ -1453,7 +1437,7 @@ return view.extend({
         var bOrder = (target + 1) * 10;
         uci.set('quickactions', secs[idx]['.name'], 'order', String(bOrder));
         uci.set('quickactions', secs[target]['.name'], 'order', String(aOrder));
-        return uci.save().then(function() { ui.addNotification('Reordered', name + ' moved ' + direction, 'info'); });
+        return uci.save().then(function() { ui.addNotification(_('Reordered'), _('%s moved %s').format(name, _(direction)), 'info'); });
     },
 
     getServiceInfo: function(buttonName) {
@@ -1467,7 +1451,7 @@ return view.extend({
         var name = buttonName.toLowerCase();
         var info = this.getServiceInfo(buttonName);
         if (info && info.service && initList[info.service]) return initList[info.service].enabled && initList[info.service].running;
-        var fb = { 'dns':'dnsmasq','dhcp':'dnsmasq','firewall':'firewall','vpn':'openvpn','wireguard':'network' };
+        var fb = { 'dns':_('dnsmasq'),'dhcp':_('dnsmasq'),'firewall':'firewall','vpn':'openvpn','wireguard':'network' };
         for (var k in fb) { if (name.includes(k) && initList[fb[k]]) return initList[fb[k]].enabled && initList[fb[k]].running; }
         return null;
     },
@@ -1476,7 +1460,7 @@ return view.extend({
         var self = this;
         btnElement.setAttribute('data-executing', 'true');
         btnElement.style.opacity = '0.5';
-        ui.addNotification('Executing', buttonName + ' is running...', 'info');
+        ui.addTimeLimitedNotification(_('Executing'), _('%s is running...').format(buttonName), 8000, 'info');
         this.callSystemCommand('/bin/sh', [ '-c', commandStr ]).then(function(result) {
             btnElement.setAttribute('data-executing', 'false');
             btnElement.style.opacity = '1';
@@ -1488,14 +1472,14 @@ return view.extend({
             pre.id = uid;
             pre.style.cssText = 'text-align:left;white-space:pre-wrap;max-height:70vh;overflow-y:auto;background:#1e1e1e;color:#00ff00;padding:15px;border-radius:8px;font-family:monospace;font-size:0.9em;width:100%;box-sizing:border-box;margin:0;';
             pre.textContent = output;
-            ui.addNotification(buttonName + ' Done', pre, 'info');
+            ui.addNotification(_('%s Done').format(buttonName), pre, 'info');
             var el = document.getElementById(uid);
             if (el && el.closest) { var c = el.closest('.alert'); if (c) { c.style.maxWidth = '95%'; c.style.width = 'auto'; } }
             self.updateAllButtonsRealtime();
         }).catch(function(err) {
             btnElement.setAttribute('data-executing', 'false');
             btnElement.style.opacity = '1';
-            ui.addNotification('Failed', (err && err.message) ? err.message : String(err), 'danger');
+            ui.addNotification(_('Failed'), (err && err.message) ? err.message : String(err), 'danger');
         });
     },
 
@@ -1503,7 +1487,7 @@ return view.extend({
         if (btnElement.getAttribute('data-executing') === 'true') return;
         var info = this.getServiceInfo(buttonName);
         if (info && info.dangerous) {
-            if (confirm('Warning: high-risk operation (' + buttonName + ').\nProceed?')) this.executeValidatedCommand(commandStr, buttonName, btnElement);
+            if (confirm(_('Warning: high-risk operation (%s).').format(buttonName) + '\n' + _('Proceed?'))) this.executeValidatedCommand(commandStr, buttonName, btnElement);
         } else this.executeValidatedCommand(commandStr, buttonName, btnElement);
     },
 
@@ -1532,13 +1516,14 @@ return view.extend({
         return this.callSystemCommand('/bin/sh', [ '-c', cmd ]).then(function(r) {
             var out = r.stdout || '';
             if (r.stderr) out += '\n[stderr]\n' + r.stderr;
-            if (!out.trim()) out = 'Done.';
+            if (r.code) out += '\n[exit code ' + r.code + ']';
+            if (!out.trim()) out = _('Done.');
             var uid = 'qa-tool-out-' + Date.now();
             var pre = document.createElement('pre');
             pre.id = uid;
             pre.style.cssText = 'text-align:left;white-space:pre-wrap;max-height:70vh;overflow-y:auto;background:#1e1e1e;color:#00ff00;padding:12px;border-radius:6px;font-family:monospace;font-size:0.9em;width:100%;box-sizing:border-box;margin:0;';
             pre.textContent = out;
-            ui.addNotification(label + ' Done', pre, 'info');
+            ui.addNotification(_('%s Done').format(label), pre, 'info');
             var el = document.getElementById(uid);
             if (el && el.closest) { var c = el.closest('.alert'); if (c) { c.style.maxWidth = '95%'; c.style.width = 'auto'; } }
             return r;
@@ -1548,9 +1533,9 @@ return view.extend({
     renderDashboard: function(cmds, initList) {
         var self = this;
         var currentLang = (uci.get('luci', 'main', 'lang') || 'en');
-        var themeBar = E('div', { 'style': 'background:rgba(0,0,0,0.04);padding:12px 14px;border-radius:8px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, [E('strong', { 'style': 'min-width:130px;' }, 'Theme Switcher: ')]);
+        var themeBar = E('div', { 'style': 'background:rgba(0,0,0,0.04);padding:12px 14px;border-radius:8px;margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, [E('strong', { 'style': 'min-width:130px;' }, _('Theme Switcher:'))]);
         if (this.installedThemes.length === 0) {
-            themeBar.appendChild(E('span', { 'style': 'color:#777;font-style:italic;' }, 'No themes detected'));
+            themeBar.appendChild(E('span', { 'style': 'color:#777;font-style:italic;' }, _('No themes detected')));
             themeBar.appendChild(E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.8em;margin-left:6px;', 'click': function() {
                 var cmd = [
                     'echo "=== /www/luci-static/ ==="',
@@ -1567,23 +1552,25 @@ return view.extend({
                 ].join('\n');
                 self.callSystemCommand('/bin/sh', ['-c', cmd]).then(function(r) {
                     var out = (r.stdout || '') + (r.stderr ? '\n[stderr]\n' + r.stderr : '');
-                    ui.addNotification('Theme Diagnostic',
+                    ui.addNotification(_('Theme Diagnostic'),
                         E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#0f0;padding:12px;border-radius:4px;font-family:monospace;font-size:0.85em;max-height:400px;overflow:auto;' }, out),
                         'info');
                 });
-            } }, 'Diagnose'));
+            } }, _('Diagnose')));
         }
         else this.installedThemes.forEach(function(t) {
-            themeBar.appendChild(E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'padding:4px 12px;text-transform:capitalize;font-weight:bold;', 'click': function() { self.handleThemeSwitch(t); } }, t));
+            themeBar.appendChild(E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'padding:4px 12px;font-weight:bold;', 'click': function() { self.handleThemeSwitch(t.name, t.url); } }, t.name));
         });
-        var langBar = E('div', { 'style': 'background:rgba(0,0,0,0.04);padding:12px 14px;border-radius:8px;margin-bottom:20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, [E('strong', { 'style': 'min-width:130px;' }, 'Language Switcher: ')]);
-        [ { code: 'en', label: 'English' }, { code: 'bn_BD', label: 'বাংলা' } ].forEach(function(l) {
-            var active = (currentLang === l.code);
-            var btn = E('button', { 'class': 'btn cbi-button ' + (active ? 'cbi-button-action important' : 'cbi-button-neutral'), 'style': 'padding:4px 14px;font-weight:bold;', 'click': function() { self.handleLanguageSwitch(l.code); } }, l.label);
+        var langBar = E('div', { 'style': 'background:rgba(0,0,0,0.04);padding:12px 14px;border-radius:8px;margin-bottom:20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;' }, [E('strong', { 'style': 'min-width:130px;' }, _('Language Switcher:'))]);
+        var installedLangs = uci.get('luci', 'languages') || {};
+        var langOpts = Object.assign({ 'auto': _('auto'), 'en': 'English' }, installedLangs);
+        Object.keys(langOpts).filter(function(k){ return k.charAt(0) !== '.'; }).forEach(function(code) {
+            var active = (currentLang === code);
+            var btn = E('button', { 'class': 'btn cbi-button ' + (active ? 'cbi-button-action important' : 'cbi-button-neutral'), 'style': 'padding:4px 14px;font-weight:bold;', 'click': function() { self.handleLanguageSwitch(code); } }, langOpts[code] || code);
             langBar.appendChild(btn);
         });
         var grid = E('div', { 'id': 'quickactions-grid-container', 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;' });
-        if (cmds.length === 0) grid.appendChild(E('p', { 'style': 'grid-column:1/-1;color:#888;' }, 'No custom commands. Add them in System > Custom Commands first.'));
+        if (cmds.length === 0) grid.appendChild(E('p', { 'style': 'grid-column:1/-1;color:#888;' }, _('No custom commands. Add them in System > Custom Commands first.')));
         else {
             var is3d = this.designStyle === '3d';
             cmds.forEach(function(c) {
@@ -1614,10 +1601,10 @@ return view.extend({
         secs.sort(function(a, b) { return (parseInt(a.order, 10) || 999) - (parseInt(b.order, 10) || 999); });
         var is3d = this.designStyle === '3d';
         var grid = E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;' });
-        if (secs.length === 0) grid.appendChild(E('p', { 'style': 'grid-column:1/-1;color:#888;' }, 'No essential buttons. Add them in the Configuration tab.'));
+        if (secs.length === 0) grid.appendChild(E('p', { 'style': 'grid-column:1/-1;color:#888;' }, _('No essential buttons. Add them in the Configuration tab.')));
         else secs.forEach(function(s, idx) {
             var cmd = s.command || '';
-            var label = s.label || s['.name'];
+            var label = _(s.label || s['.name']);
             var icon = s.icon || '';
             var needsConfirm = s.confirm === '1';
             var isFirst = idx === 0;
@@ -1632,21 +1619,29 @@ return view.extend({
             var btn = E('button', { 'class': 'btn cbi-button', 'style': style, 'data-executing': 'false' }, (icon ? icon + '  ' : '') + label);
             btn.addEventListener('click', function() {
                 if (btn.getAttribute('data-executing') === 'true') return;
-                if (!cmd) { ui.addNotification('Error', 'No command', 'danger'); return; }
-                if (needsConfirm && !confirm('Confirm: ' + label + '\n\nCommand:\n' + cmd + '\n\nProceed?')) return;
+                if (!cmd) { ui.addNotification(_('Error'), _('No command'), 'danger'); return; }
+                if (needsConfirm && !confirm(_('Confirm: %s').format(label) + '\n\n' + _('Command:') + '\n' + cmd + '\n\n' + _('Proceed?'))) return;
+                if (cmd.indexOf('@download:') === 0) {
+                    var dlPath = cmd.substring(10) || (L.env.cgi_base + '/cgi-backup');
+                    var form = E('form', { 'method': 'post', 'action': dlPath, 'enctype': 'application/x-www-form-urlencoded' }, E('input', { 'type': 'hidden', 'name': 'sessionid', 'value': rpc.getSessionID() }));
+                    document.body.appendChild(form);
+                    form.submit();
+                    document.body.removeChild(form);
+                    return;
+                }
                 btn.setAttribute('data-executing', 'true'); btn.style.opacity = '0.5';
-                ui.addNotification('Running', label + '...', 'info');
+                ui.addTimeLimitedNotification(_('Running'), _('%s...').format(label), 8000, 'info');
                 self.runCommand(cmd, label).then(function() { btn.setAttribute('data-executing', 'false'); btn.style.opacity = '1'; })
-                    .catch(function(err) { btn.setAttribute('data-executing', 'false'); btn.style.opacity = '1'; ui.addNotification('Failed', (err && err.message) ? err.message : String(err), 'danger'); });
+                    .catch(function(err) { btn.setAttribute('data-executing', 'false'); btn.style.opacity = '1'; ui.addNotification(_('Failed'), (err && err.message) ? err.message : String(err), 'danger'); });
             });
-            var upBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 6px;font-size:0.7em;line-height:1;', 'title': 'Move up', 'click': function() { if (isFirst) return; self.moveItem('essential', s['.name'], 'up').then(function() { self.switchTab('essential'); }); } }, '▲');
-            var downBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 6px;font-size:0.7em;line-height:1;', 'title': 'Move down', 'click': function() { if (isLast) return; self.moveItem('essential', s['.name'], 'down').then(function() { self.switchTab('essential'); }); } }, '▼');
+            var upBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 6px;font-size:0.7em;line-height:1;', 'title': _('Move up'), 'click': function() { if (isFirst) return; self.moveItem('essential', s['.name'], 'up').then(function() { self.switchTab('essential'); }); } }, '▲');
+            var downBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 6px;font-size:0.7em;line-height:1;', 'title': _('Move down'), 'click': function() { if (isLast) return; self.moveItem('essential', s['.name'], 'down').then(function() { self.switchTab('essential'); }); } }, '▼');
             var arrows = E('div', { 'style': 'display:flex;flex-direction:column;gap:2px;' }, [upBtn, downBtn]);
             var row = E('div', { 'style': 'display:flex;gap:6px;align-items:stretch;' }, [btn, arrows]);
             grid.appendChild(row);
         });
         return E('div', {}, [
-            E('p', { 'style': 'color:#777;font-size:0.9em;margin-bottom:14px;' }, 'Essential operations. Use ▲▼ arrows to reorder. Edit in Configuration tab.'),
+            E('p', { 'style': 'color:#777;font-size:0.9em;margin-bottom:14px;' }, _('Essential operations. Use ▲▼ arrows to reorder. Edit in Configuration tab.')),
             grid
         ]);
     },
@@ -1662,42 +1657,42 @@ return view.extend({
                 E('input', { 'id': id, 'type': type || 'text', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;box-sizing:border-box;' })
             ]);
         }
-        var pppoeSection = section('PPPoE Internet Setup', E('div', {}, [
-            E('p', { 'style': 'color:#666;font-size:0.9em;margin:0 0 12px 0;' }, 'Configure WAN as PPPoE. Backs up /etc/config/network first.'),
-            inputRow('PPPoE Username', 'qa-pppoe-user'),
-            inputRow('PPPoE Password', 'qa-pppoe-pass', 'password'),
+        var pppoeSection = section(_('PPPoE Internet Setup'), E('div', {}, [
+            E('p', { 'style': 'color:#666;font-size:0.9em;margin:0 0 12px 0;' }, _('Configure WAN as PPPoE. Backs up /etc/config/network first.')),
+            inputRow(_('PPPoE Username'), 'qa-pppoe-user'),
+            inputRow(_('PPPoE Password'), 'qa-pppoe-pass', 'password'),
             E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
                 var u = document.getElementById('qa-pppoe-user').value;
                 var p = document.getElementById('qa-pppoe-pass').value;
-                if (!u || !p) { ui.addNotification('Error', 'Username and password required.', 'danger'); return; }
-                if (!confirm('Reconfigure WAN as PPPoE with user "' + u + '"? Internet may drop briefly.')) return;
+                if (!u || !p) { ui.addNotification(_('Error'), _('Username and password required.'), 'danger'); return; }
+                if (!confirm(_('Reconfigure WAN as PPPoE with user "%s"?').format(u) + '\n' + _('Internet may drop briefly.'))) return;
                 var cmd = 'cp /etc/config/network /etc/config/network.bak.$(date +%s) 2>/dev/null; uci -q delete network.wan 2>/dev/null; uci set network.wan=interface; uci set network.wan.proto=pppoe; uci set network.wan.username="' + u + '"; uci set network.wan.password="' + p + '"; uci commit network; /etc/init.d/network restart';
-                ui.addNotification('Running', 'Configuring PPPoE...', 'info');
-                self.runCommand(cmd, 'PPPoE Setup');
-            } }, 'Apply PPPoE')
+                ui.addTimeLimitedNotification(_('Running'), _('Configuring PPPoE...'), 8000, 'info');
+                self.runCommand(cmd, _('PPPoE Setup'));
+            } }, _('Apply PPPoE'))
         ]));
-        var pwSection = section('Change Root Password', E('div', {}, [
-            inputRow('New Password', 'qa-pw', 'password'),
-            inputRow('Confirm Password', 'qa-pw2', 'password'),
+        var pwSection = section(_('Change Root Password'), E('div', {}, [
+            inputRow(_('New Password'), 'qa-pw', 'password'),
+            inputRow(_('Confirm Password'), 'qa-pw2', 'password'),
             E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
                 var p1 = document.getElementById('qa-pw').value;
                 var p2 = document.getElementById('qa-pw2').value;
-                if (!p1 || p1.length < 4) { ui.addNotification('Error', 'Password too short.', 'danger'); return; }
-                if (p1 !== p2) { ui.addNotification('Error', 'Passwords do not match.', 'danger'); return; }
-                if (!confirm('Change root password? You will be logged out.')) return;
+                if (!p1 || p1.length < 4) { ui.addNotification(_('Error'), _('Password too short.'), 'danger'); return; }
+                if (p1 !== p2) { ui.addNotification(_('Error'), _('Passwords do not match.'), 'danger'); return; }
+                if (!confirm(_('Change root password? You will be logged out.'))) return;
                 var rpcSetPw = rpc.declare({ object: 'luci', method: 'setPassword', params: [ 'username', 'password' ], expect: { '': {} } });
-                rpcSetPw('root', p1).then(function() { ui.addNotification('Success', 'Password changed. Log in again.', 'info'); document.getElementById('qa-pw').value = ''; document.getElementById('qa-pw2').value = ''; })
-                    .catch(function(err) { ui.addNotification('Failed', (err && err.message) ? err.message : String(err), 'danger'); });
-            } }, 'Change Password')
+                rpcSetPw('root', p1).then(function() { ui.addNotification(_('Success'), _('Password changed. Log in again.'), 'info'); document.getElementById('qa-pw').value = ''; document.getElementById('qa-pw2').value = ''; })
+                    .catch(function(err) { ui.addNotification(_('Failed'), (err && err.message) ? err.message : String(err), 'danger'); });
+            } }, _('Change Password'))
         ]));
         var shortcutSecs = (uci.sections('quickactions', 'shortcut') || []).slice();
         shortcutSecs.sort(function(a, b) { return (parseInt(a.order, 10) || 999) - (parseInt(b.order, 10) || 999); });
         var shortcutBody;
-        if (shortcutSecs.length === 0) shortcutBody = E('p', { 'style': 'color:#888;' }, 'No shortcuts.');
+        if (shortcutSecs.length === 0) shortcutBody = E('p', { 'style': 'color:#888;' }, _('No shortcuts.'));
         else {
             shortcutBody = E('div', { 'style': 'display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;' });
             shortcutSecs.forEach(function(s, idx) {
-                var path = s.path || '', label = s.label || s['.name'], icon = s.icon || '';
+                var path = s.path || '', label = _(s.label || s['.name']), icon = s.icon || '';
                 var isFirst = idx === 0, isLast = idx === shortcutSecs.length - 1;
                 var navBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:12px 10px;font-weight:bold;flex:1;background:rgba(128,128,128,0.15) !important;background-color:rgba(128,128,128,0.15) !important;color:inherit !important;border:1px solid rgba(0,0,0,0.15) !important;', 'click': function() { if (path) window.location.href = '/cgi-bin/luci/' + path; } }, (icon ? icon + '  ' : '') + label);
                 var upBtn = E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 6px;font-size:0.7em;line-height:1;', 'click': function() { if (isFirst) return; self.moveItem('shortcut', s['.name'], 'up').then(function() { self.switchTab('tools'); }); } }, '▲');
@@ -1706,16 +1701,16 @@ return view.extend({
                 shortcutBody.appendChild(E('div', { 'style': 'display:flex;gap:6px;align-items:stretch;' }, [navBtn, arrows]));
             });
         }
-        var shortcutSection = section('Quick Navigation Shortcuts', shortcutBody);
+        var shortcutSection = section(_('Quick Navigation Shortcuts'), shortcutBody);
         return E('div', {}, [pppoeSection, pwSection, shortcutSection]);
     },
 
     renderLogs: function() {
         var self = this;
         var levels = [
-            { v: 8, label: 'Debug (8)' }, { v: 7, label: 'Info (7)' }, { v: 6, label: 'Notice (6)' },
-            { v: 5, label: 'Warning (5)' }, { v: 4, label: 'Error (4)' }, { v: 3, label: 'Critical (3)' },
-            { v: 2, label: 'Alert (2)' }, { v: 1, label: 'Emergency (1)' }, { v: 0, label: 'Silent (0)' }
+            { v: 8, label: _('Debug (8)') }, { v: 7, label: _('Info (7)') }, { v: 6, label: _('Notice (6)') },
+            { v: 5, label: _('Warning (5)') }, { v: 4, label: _('Error (4)') }, { v: 3, label: _('Critical (3)') },
+            { v: 2, label: _('Alert (2)') }, { v: 1, label: _('Emergency (1)') }, { v: 0, label: _('Silent (0)') }
         ];
         var current = uci.get('system', '@system[0]', 'log_level') || '5';
         var select = E('select', { 'id': 'qa-log-level', 'style': 'padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;min-width:220px;' });
@@ -1726,31 +1721,31 @@ return view.extend({
         });
         return E('div', {}, [
             E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;margin-bottom:18px;' }, [
-                E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'System Log Level'),
-                E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, 'Current: ' + current + '. Lower = fewer logs.'),
+                E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('System Log Level')),
+                E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, _('Current: %s. Lower = fewer logs.').format(current)),
                 select,
                 E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:12px;margin-left:8px;', 'click': function() {
                     var v = document.getElementById('qa-log-level').value;
-                    if (!confirm('Change log level to ' + v + '?')) return;
+                    if (!confirm(_('Change log level to %s?').format(v))) return;
                     var cmd = 'uci set system.@system[0].log_level=' + v + '; uci commit system; /etc/init.d/log restart';
-                    self.runCommand(cmd, 'Set log level').then(function() { ui.addNotification('Done', 'Log level set to ' + v + ' — reloading...', 'info'); setTimeout(function() { window.location.reload(); }, 1200); });
-                } }, 'Apply')
+                    self.runCommand(cmd, _('Set log level')).then(function() { ui.addNotification(_('Done'), _('Log level set to %s — reloading...').format(v), 'info'); setTimeout(function() { window.location.reload(); }, 1200); });
+                } }, _('Apply'))
             ]),
             E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;margin-bottom:18px;' }, [
-                E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'Cron Log Level'),
+                E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('Cron Log Level')),
                 E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, 'OpenWrt cron is BusyBox crond — logs go to syslog at current system level.'),
                 E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
-                    self.runCommand('/etc/init.d/cron restart && logger -t cron "cron restarted"', 'Restart cron');
-                } }, 'Restart Cron'),
+                    self.runCommand('/etc/init.d/cron restart && logger -t cron "cron restarted"', _('Restart cron'));
+                } }, _('Restart Cron')),
                 E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() {
-                    self.runCommand('logread | grep -i cron | tail -30', 'Recent cron log');
-                } }, 'Show Recent Cron Log')
+                    self.runCommand('logread | grep -i cron | tail -30', _('Recent cron log'));
+                } }, _('Show Recent Cron Log'))
             ]),
             E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;' }, [
-                E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'Log Viewer'),
-                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() { self.runCommand('logread | tail -50', 'Last 50 log lines'); } }, 'Last 50 lines'),
-                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('logread | grep -i error | tail -30', 'Errors'); } }, 'Errors only'),
-                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('dmesg | tail -30', 'Kernel messages'); } }, 'Kernel (dmesg)')
+                E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('Log Viewer')),
+                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() { self.runCommand('logread | tail -50', _('Last 50 log lines')); } }, _('Last 50 lines')),
+                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('logread | grep -i error | tail -30', _('Errors')); } }, _('Errors only')),
+                E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('dmesg | tail -30', _('Kernel messages')); } }, _('Kernel (dmesg)'))
             ])
         ]);
     },
@@ -1764,42 +1759,42 @@ return view.extend({
             ]);
         }
         var actionSelect = E('select', { 'id': 'qa-svc-action', 'style': 'padding:8px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;min-width:220px;' }, [
-            E('option', { 'value': 'enable_start' }, 'Enable + Start'),
-            E('option', { 'value': 'disable_stop' }, 'Disable + Stop'),
-            E('option', { 'value': 'restart' }, 'Restart'),
-            E('option', { 'value': 'status' }, 'Show Status')
+            E('option', { 'value': 'enable_start' }, _('Enable + Start')),
+            E('option', { 'value': 'disable_stop' }, _('Disable + Stop')),
+            E('option', { 'value': 'restart' }, _('Restart')),
+            E('option', { 'value': 'status' }, _('Show Status'))
         ]);
         var row2 = E('div', { 'style': 'margin-bottom:10px;' }, [
-            E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, 'Action'),
+            E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Action')),
             actionSelect
         ]);
 
         var applierSection = E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;margin-bottom:18px;' }, [
-            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'Service Mode Applier'),
-            E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, 'Enable, disable, restart, or check any service on the router.'),
-            inputRow('Service Name', 'qa-svc-name', 'e.g. dnsmasq, firewall, uhttpd'),
+            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('Service Mode Applier')),
+            E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, _('Enable, disable, restart, or check any service on the router.')),
+            inputRow(_('Service Name'), 'qa-svc-name', _('e.g. dnsmasq, firewall, uhttpd')),
             row2,
             E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
                 var name = document.getElementById('qa-svc-name').value.trim();
                 var action = document.getElementById('qa-svc-action').value;
-                if (!name) { ui.addNotification('Error', 'Enter service name', 'danger'); return; }
-                if (!/^[a-zA-Z0-9_\-]+$/.test(name)) { ui.addNotification('Error', 'Invalid service name', 'danger'); return; }
+                if (!name) { ui.addNotification(_('Error'), _('Enter service name'), 'danger'); return; }
+                if (!/^[a-zA-Z0-9_\-]+$/.test(name)) { ui.addNotification(_('Error'), _('Invalid service name'), 'danger'); return; }
                 var cmd;
                 if (action === 'enable_start') cmd = '/etc/init.d/' + name + ' enable && /etc/init.d/' + name + ' start';
                 else if (action === 'disable_stop') cmd = '/etc/init.d/' + name + ' stop; /etc/init.d/' + name + ' disable';
                 else if (action === 'restart') cmd = '/etc/init.d/' + name + ' restart';
                 else cmd = '/etc/init.d/' + name + ' enabled; /etc/init.d/' + name + ' running 2>/dev/null; ubus call service list "{\\"name\\":\\"' + name + '\\"}" 2>/dev/null';
-                if (!confirm('Apply "' + action + '" to service "' + name + '"?\n\nCommand:\n' + cmd)) return;
-                ui.addNotification('Running', name + ' ' + action, 'info');
+                if (!confirm(_('Apply "%s" to service "%s"?').format(action, name) + '\n\n' + _('Command:') + '\n' + cmd)) return;
+                ui.addTimeLimitedNotification(_('Running'), _('%s %s').format(name, _(action)), 8000, 'info');
                 self.runCommand(cmd, name + ': ' + action);
-            } }, 'Apply')
+            } }, _('Apply'))
         ]);
 
         var listSection = E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;' }, [
-            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'Service Lists'),
-            E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() { self.runCommand('/etc/init.d/* enabled 2>/dev/null; echo "---"; ls /etc/init.d/', 'Enabled services'); } }, 'Enabled Services'),
-            E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('for s in /etc/init.d/*; do n=$(basename $s); /etc/init.d/$n enabled 2>/dev/null || echo "DISABLED: $n"; done', 'Disabled services'); } }, 'Disabled Services'),
-            E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('ubus list | sort', 'All ubus services'); } }, 'Active ubus Services')
+            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('Service Lists')),
+            E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() { self.runCommand('/etc/init.d/* enabled 2>/dev/null; echo "---"; ls /etc/init.d/', _('Enabled services')); } }, _('Enabled Services')),
+            E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('for s in /etc/init.d/*; do n=$(basename $s); /etc/init.d/$n enabled 2>/dev/null || echo "DISABLED: $n"; done', _('Disabled services')); } }, _('Disabled Services')),
+            E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() { self.runCommand('ubus list | sort', _('All ubus services')); } }, _('Active ubus Services'))
         ]);
         return E('div', {}, [applierSection, listSection]);
     },
@@ -1807,52 +1802,52 @@ return view.extend({
     renderDependencies: function() {
         var self = this;
         var inputRow = E('div', { 'style': 'margin-bottom:10px;' }, [
-            E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, 'Package name (leave blank to list all)'),
-            E('input', { 'id': 'qa-dep-pkg', 'placeholder': 'e.g. luci-app-firewall', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;box-sizing:border-box;' })
+            E('label', { 'style': 'display:block;font-size:0.9em;color:#666;margin-bottom:4px;' }, _('Package name (leave blank to list all)')),
+            E('input', { 'id': 'qa-dep-pkg', 'placeholder': _('e.g. luci-app-firewall'), 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;box-sizing:border-box;' })
         ]);
 
         function runSingle() {
             var pkg = document.getElementById('qa-dep-pkg').value.trim();
-            if (!pkg) { ui.addNotification('Error', 'Enter a package name', 'danger'); return; }
-            if (!/^[a-zA-Z0-9_\-\+\.]+$/.test(pkg)) { ui.addNotification('Error', 'Invalid package name', 'danger'); return; }
-            var cmd = 'if command -v apk >/dev/null 2>&1; then echo "=== apk info --depends ' + pkg + ' ==="; apk info --depends ' + pkg + ' 2>&1 || apk info -R ' + pkg + ' 2>&1; else echo "=== opkg info ' + pkg + ' ==="; opkg info ' + pkg + ' 2>&1 | grep -A50 "^Package:"; fi';
-            ui.addNotification('Running', 'Fetching ' + pkg + ' dependencies...', 'info');
-            self.runCommand(cmd, 'Dependencies: ' + pkg);
+            if (!pkg) { ui.addNotification(_('Error'), _('Enter a package name'), 'danger'); return; }
+            if (!/^[a-zA-Z0-9_\-\+\.]+$/.test(pkg)) { ui.addNotification(_('Error'), _('Invalid package name'), 'danger'); return; }
+            var cmd = 'if command -v apk >/dev/null 2>&1; then echo "=== apk info --depends ' + pkg + ' ==="; out=$(apk info --depends ' + pkg + ' 2>&1); if [ -n "$out" ]; then printf "%s\n" "$out"; elif apk list ' + pkg + ' 2>/dev/null | grep -q .; then echo "Package \'' + pkg + '\' is available but not installed:"; apk list ' + pkg + '; else echo "Package \'' + pkg + '\' is not installed and not in repositories."; echo "Similar names:"; apk list "*' + pkg + '*" 2>/dev/null | head -10; fi; else echo "=== opkg info ' + pkg + ' ==="; opkg info ' + pkg + ' 2>&1 | grep -A50 "^Package:"; fi';
+            ui.addTimeLimitedNotification(_('Running'), _('Fetching %s dependencies...').format(pkg), 8000, 'info');
+            self.runCommand(cmd, _('Dependencies: %s').format(pkg));
         }
 
         var singleBox = E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;margin-bottom:18px;' }, [
-            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'Package Dependency Inspector'),
-            E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, 'Auto-detects apk (OpenWrt 25.12+) vs opkg (older). Enter a package name to view its dependencies.'),
+            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('Package Dependency Inspector')),
+            E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, _('Auto-detects apk (OpenWrt 25.12+) vs opkg (older). Enter a package name to view its dependencies.')),
             inputRow,
-            E('button', { 'class': 'btn cbi-button cbi-button-action important', 'click': runSingle }, 'Show Dependencies')
+            E('button', { 'class': 'btn cbi-button cbi-button-action important', 'click': runSingle }, _('Show Dependencies'))
         ]);
 
         var allBox = E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;' }, [
-            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'All Installed Packages with Dependencies'),
-            E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, 'Lists every installed package and its full dependency tree. Output may be large.'),
+            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('All Installed Packages with Dependencies')),
+            E('p', { 'style': 'color:#777;font-size:0.9em;margin:0 0 12px 0;' }, _('Lists every installed package and its full dependency tree. Output may be large.')),
             E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
                 var cmd = 'if command -v apk >/dev/null 2>&1; then apk list --installed -I 2>/dev/null | head -200; echo ""; echo "=== Total installed ==="; apk list -I 2>/dev/null | wc -l; else opkg list-installed; fi';
-                ui.addNotification('Running', 'Listing all packages...', 'info');
-                self.runCommand(cmd, 'All packages');
-            } }, 'List All Packages'),
+                ui.addTimeLimitedNotification(_('Running'), _('Listing all packages...'), 8000, 'info');
+                self.runCommand(cmd, _('All packages'));
+            } }, _('List All Packages')),
             E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() {
                 var cmd = 'if command -v apk >/dev/null 2>&1; then apk list -I --depends 2>/dev/null | head -300; else awk \'/^Package:/{p=$2} /^Depends:/{print p " -> " $0}\' /usr/lib/opkg/status; fi';
-                ui.addNotification('Running', 'Listing dependencies...', 'info');
-                self.runCommand(cmd, 'Package dependencies');
-            } }, 'List All Dependencies'),
+                ui.addTimeLimitedNotification(_('Running'), _('Listing dependencies...'), 8000, 'info');
+                self.runCommand(cmd, _('Package dependencies'));
+            } }, _('List All Dependencies')),
             E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'style': 'margin-left:8px;', 'click': function() {
                 var cmd = 'if command -v apk >/dev/null 2>&1; then apk info --depends 2>/dev/null | head -200; else opkg status | grep -E "^(Package|Depends):"; fi';
-                ui.addNotification('Running', 'Fetching dependency pairs...', 'info');
-                self.runCommand(cmd, 'Dependency pairs');
-            } }, 'Compact View')
+                ui.addTimeLimitedNotification(_('Running'), _('Fetching dependency pairs...'), 8000, 'info');
+                self.runCommand(cmd, _('Dependency pairs'));
+            } }, _('Compact View'))
         ]);
 
         var totalsBox = E('div', { 'style': 'background:rgba(0,0,0,0.02);border:1px solid rgba(0,0,0,0.06);border-radius:8px;padding:16px;margin-top:18px;' }, [
-            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, 'System Package Summary'),
+            E('h3', { 'style': 'margin:0 0 12px 0;font-size:1.05em;' }, _('System Package Summary')),
             E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
                 var cmd = 'echo "Package manager:"; command -v apk >/dev/null 2>&1 && echo "apk (OpenWrt 25.12+)" || echo "opkg (OpenWrt <=24.10)"; echo ""; echo "Total installed packages:"; if command -v apk >/dev/null 2>&1; then apk list -I 2>/dev/null | wc -l; else opkg list-installed | wc -l; fi; echo ""; echo "Recent installs:"; if command -v apk >/dev/null 2>&1; then apk list -I 2>/dev/null | tail -20; else opkg list-installed | tail -20; fi';
-                self.runCommand(cmd, 'Package summary');
-            } }, 'System Package Summary')
+                self.runCommand(cmd, _('Package summary'));
+            } }, _('System Package Summary'))
         ]);
 
         return E('div', {}, [singleBox, allBox, totalsBox]);
@@ -1870,37 +1865,37 @@ return view.extend({
             return E('pre', { 'style': 'background:#1e1e1e;color:#00ff00;padding:10px;border-radius:6px;font-family:monospace;font-size:0.85em;overflow-x:auto;margin:8px 0;white-space:pre-wrap;' }, text);
         }
         var runnerBox = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:16px;margin-bottom:20px;' }, [
-            E('h3', { 'style': 'margin:0 0 10px 0;' }, 'Direct Command Execution'),
-            E('p', { 'style': 'color:#666;font-size:0.9em;margin:0 0 12px 0;' }, 'Run shell commands as root. Output in notification.'),
-            E('textarea', { 'id': 'qa-cmd-input', 'placeholder': 'e.g. df -h', 'style': 'width:100%;min-height:90px;padding:10px;border:1px solid #ccc;border-radius:4px;font-family:monospace;font-size:0.9em;box-sizing:border-box;' }),
+            E('h3', { 'style': 'margin:0 0 10px 0;' }, _('Direct Command Execution')),
+            E('p', { 'style': 'color:#666;font-size:0.9em;margin:0 0 12px 0;' }, _('Run shell commands as root. Output in notification.')),
+            E('textarea', { 'id': 'qa-cmd-input', 'placeholder': _('e.g. df -h'), 'style': 'width:100%;min-height:90px;padding:10px;border:1px solid #ccc;border-radius:4px;font-family:monospace;font-size:0.9em;box-sizing:border-box;' }),
             E('div', { 'style': 'margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;' }, [
                 E('button', { 'class': 'btn cbi-button cbi-button-action important', 'click': function() {
                     var cmd = document.getElementById('qa-cmd-input').value.trim();
                     if (!cmd) return;
-                    if (!confirm('Run this command?\n\n' + cmd)) return;
-                    ui.addNotification('Running', 'Command executing...', 'info');
-                    self.runCommand(cmd, 'Command');
-                } }, 'Run Command'),
-                E('button', { 'class': 'btn cbi-button', 'click': function() { document.getElementById('qa-cmd-input').value = ''; } }, 'Clear')
+                    if (!confirm(_('Run this command?') + '\n\n' + cmd)) return;
+                    ui.addTimeLimitedNotification(_('Running'), _('Command executing...'), 8000, 'info');
+                    self.runCommand(cmd, _('Command'));
+                } }, _('Run Command')),
+                E('button', { 'class': 'btn cbi-button', 'click': function() { document.getElementById('qa-cmd-input').value = ''; } }, _('Clear'))
             ])
         ]);
         var docs = E('div', {}, [
-            E('h3', { 'style': 'margin:0 0 12px 0;' }, 'OpenWrt Command Reference'),
-            docBox('System Information', E('div', {}, [codeBlock('uname -a\ncat /etc/openwrt_release\ncat /proc/cpuinfo\nfree -h\ndf -h\nuptime')])),
-            docBox('Network Diagnostics', E('div', {}, [codeBlock('ip addr show\nip route show\niwinfo\nping -c 4 8.8.8.8\nnslookup google.com\ntraceroute 8.8.8.8')])),
-            docBox('WiFi Management', E('div', {}, [codeBlock('/sbin/wifi down\n/sbin/wifi up\nwifi status\niwinfo wlan0 scan')])),
-            docBox('Firewall / Routing', E('div', {}, [codeBlock('nft list ruleset\nuci show firewall\nuci show network\nfw4 reload')])),
-            docBox('Package Management', E('div', {}, [codeBlock('opkg update && opkg list-installed\napk update && apk list -I')])),
-            docBox('Service Control', E('div', {}, [codeBlock('/etc/init.d/network restart\nservice <name> enable\nservice <name> disable')])),
-            docBox('Logs and Debugging', E('div', {}, [codeBlock('logread\nlogread -f\ndmesg\nlogread | grep error')])),
-            docBox('UCI Configuration', E('div', {}, [codeBlock('uci show\nuci get network.wan.proto\nuci set network.wan.proto=dhcp\nuci commit network')])),
-            docBox('Process Management', E('div', {}, [codeBlock('ps w\ntop -n 1\nkill <pid>\nlsmod')])),
-            docBox('GPIO / Hardware Buttons', E('div', {}, [codeBlock('ubus call system board\nls /sys/class/gpio/\n/etc/rc.button/reset')])),
-            docBox('Backup and Restore', E('div', {}, [codeBlock('sysupgrade -b /tmp/backup.tar.gz\nsysupgrade -r /tmp/backup.tar.gz\nfirstboot -y')])),
-            docBox('Useful One-Liners', E('div', {}, [
+            E('h3', { 'style': 'margin:0 0 12px 0;' }, _('OpenWrt Command Reference')),
+            docBox(_('System Information'), E('div', {}, [codeBlock('uname -a\ncat /etc/openwrt_release\ncat /proc/cpuinfo\nfree -h\ndf -h\nuptime')])),
+            docBox(_('Network Diagnostics'), E('div', {}, [codeBlock('ip addr show\nip route show\niwinfo\nping -c 4 8.8.8.8\nnslookup google.com\ntraceroute 8.8.8.8')])),
+            docBox(_('WiFi Management'), E('div', {}, [codeBlock('/sbin/wifi down\n/sbin/wifi up\nwifi status\niwinfo wlan0 scan')])),
+            docBox(_('Firewall / Routing'), E('div', {}, [codeBlock('nft list ruleset\nuci show firewall\nuci show network\nfw4 reload')])),
+            docBox(_('Package Management'), E('div', {}, [codeBlock('opkg update && opkg list-installed\napk update && apk list -I')])),
+            docBox(_('Service Control'), E('div', {}, [codeBlock('/etc/init.d/network restart\nservice <name> enable\nservice <name> disable')])),
+            docBox(_('Logs and Debugging'), E('div', {}, [codeBlock('logread\nlogread -f\ndmesg\nlogread | grep error')])),
+            docBox(_('UCI Configuration'), E('div', {}, [codeBlock('uci show\nuci get network.wan.proto\nuci set network.wan.proto=dhcp\nuci commit network')])),
+            docBox(_('Process Management'), E('div', {}, [codeBlock('ps w\ntop -n 1\nkill <pid>\nlsmod')])),
+            docBox(_('GPIO / Hardware Buttons'), E('div', {}, [codeBlock('ubus call system board\nls /sys/class/gpio/\n/etc/rc.button/reset')])),
+            docBox(_('Backup and Restore'), E('div', {}, [codeBlock('sysupgrade -b /tmp/backup.tar.gz\nsysupgrade -r /tmp/backup.tar.gz\nfirstboot -y')])),
+            docBox(_('Useful One-Liners'), E('div', {}, [
                 E('p', {}, 'Clear cache:'), codeBlock('rm -rf /tmp/luci-* && /etc/init.d/rpcd restart && /etc/init.d/uhttpd restart'),
-                E('p', {}, 'LEDs off:'), codeBlock('for f in /sys/class/leds/*/brightness; do echo 0 > $f; done'),
-                E('p', {}, 'Reboot in 5 min:'), codeBlock('(sleep 300 && reboot) &')
+                E('p', {}, _('LEDs off:')), codeBlock('for f in /sys/class/leds/*/brightness; do echo 0 > $f; done'),
+                E('p', {}, _('Reboot in 5 min:')), codeBlock('(sleep 300 && reboot) &')
             ]))
         ]);
         return E('div', {}, [runnerBox, docs]);
@@ -1911,12 +1906,12 @@ return view.extend({
 
         var regenBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;' }, [
             E('div', { 'style': 'font-size:0.9em;' }, [
-                E('strong', {}, 'Generator: '),
-                E('span', {}, 'Rules are stored in UCI. After Save & Apply, click Regenerate to write the handler scripts into /etc/hotplug.d/iface/.')
+                E('strong', {}, _('Generator: ')),
+                E('span', {}, _('Rules are stored in UCI. After Save & Apply, click Regenerate to write the handler scripts into /etc/hotplug.d/iface/.'))
             ]),
             E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
-                if (!confirm('Regenerate hotplug handler scripts from /etc/config/hotplug?')) return;
-                ui.addNotification('Running', 'Regenerating handlers...', 'info');
+                if (!confirm(_('Regenerate hotplug handler scripts from /etc/config/hotplug?'))) return;
+                ui.addTimeLimitedNotification(_('Running'), _('Regenerating handlers...'), 8000, 'info');
                 self.callSystemCommand('/bin/sh', [ '-c', '/etc/init.d/quickactions-hotplug restart' ]).then(function(r) {
                     var out = r.stdout || '';
                     if (r.stderr) out += '\n' + r.stderr;
@@ -1924,14 +1919,14 @@ return view.extend({
                     var pre = document.createElement('pre');
                     pre.id = uid;
                     pre.style.cssText = 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:12px;border-radius:6px;font-family:monospace;font-size:0.85em;width:100%;box-sizing:border-box;margin:0;';
-                    pre.textContent = out || 'Handlers regenerated.';
-                    ui.addNotification('Regenerated', pre, 'info');
+                    pre.textContent = out || _('Handlers regenerated.');
+                    ui.addNotification(_('Regenerated'), pre, 'info');
                     var el = document.getElementById(uid);
                     if (el && el.closest) { var c = el.closest('.alert'); if (c) { c.style.maxWidth = '95%'; c.style.width = 'auto'; } }
                 }).catch(function(err) {
-                    ui.addNotification('Failed', (err && err.message) ? err.message : String(err), 'danger');
+                    ui.addNotification(_('Failed'), (err && err.message) ? err.message : String(err), 'danger');
                 });
-            } }, 'Regenerate Handlers')
+            } }, _('Regenerate Handlers'))
         ]);
 
         var m = new form.Map('hotplug', _('Hotplug Rules'),
@@ -1990,19 +1985,19 @@ return view.extend({
 
         return m.render().then(function(formNode) {
             var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
-                if (!confirm('Save hotplug config and regenerate handlers?')) return;
-                ui.addNotification('Saving', 'Applying hotplug config...', 'info');
+                if (!confirm(_('Save hotplug config and regenerate handlers?'))) return;
+                ui.addTimeLimitedNotification(_('Saving'), _('Applying hotplug config...'), 8000, 'info');
                 m.save().then(function() {
                     return uci.apply(10);
                 }).then(function() {
                     return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-hotplug restart']).catch(function(){ return {}; });
                 }).then(function() {
-                    ui.addNotification('Saved', 'Hotplug config saved, applied, and handlers regenerated.', 'info');
+                    ui.addNotification(_('Saved'), _('Hotplug config saved, applied, and handlers regenerated.'), 'info');
                     self.switchTab('hotplug');
                 }).catch(function(err) {
-                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                 });
-            } }, 'Save & Apply Hotplug');
+            } }, _('Save & Apply Hotplug'));
             return E('div', {}, [regenBar, formNode, saveBtn]);
         });
     },
@@ -2151,15 +2146,15 @@ return view.extend({
         var input = document.getElementById('cw_preview_text');
         if (!input) return;
         var line = (input.value || '').trim();
-        if (!line || line === '* * * * *') { ui.addNotification('Error', _('Check the cron entry - it must contain time + command'), 'danger'); return; }
-        if (line.split(/\s+/).length < 6) { ui.addNotification('Error', _('Please enter the command'), 'danger'); return; }
-        if (!confirm('Add this cron entry?\n\n' + line)) return;
+        if (!line || line === '* * * * *') { ui.addNotification(_('Error'), _('Check the cron entry - it must contain time + command'), 'danger'); return; }
+        if (line.split(/\s+/).length < 6) { ui.addNotification(_('Error'), _('Please enter the command'), 'danger'); return; }
+        if (!confirm(_('Add this cron entry?') + '\n\n' + line)) return;
 
         fs.read('/etc/crontabs/root').catch(function(){ return ''; }).then(function(content) {
             var cur = (content || '').replace(/\r\n/g, '\n');
             var haystack = '\n' + cur + (cur.slice(-1) === '\n' ? '' : '\n');
             if (haystack.indexOf('\n' + line + '\n') >= 0) {
-                ui.addNotification('Duplicate', _('This entry already exists'), 'info');
+                ui.addNotification(_('Duplicate'), _('This entry already exists'), 'info');
                 return null;
             }
             if (cur && cur.slice(-1) !== '\n') cur += '\n';
@@ -2167,10 +2162,10 @@ return view.extend({
             return fs.write('/etc/crontabs/root', cur).then(function() {
                 return fs.exec('/etc/init.d/cron', ['restart']);
             }).then(function() {
-                ui.addNotification('Added', E('p', {}, line), 'info');
+                ui.addNotification(_('Added'), E('p', {}, line), 'info');
             });
         }).catch(function(e) {
-            ui.addNotification('Error', (e && e.message) ? e.message : String(e), 'danger');
+            ui.addNotification(_('Error'), (e && e.message) ? e.message : String(e), 'danger');
         });
     },
 
@@ -2199,9 +2194,9 @@ return view.extend({
             var sel = E('select', { 'id': id, 'class': 'cron-multiselect', 'multiple': true, 'size': 8, 'change': function(){ self.cwUpdatePreview(); } }, opts);
             var kids = [ sel ];
             if (cbId) {
-                kids.push(E('div', { 'style': 'display:flex;align-items:center;gap:5px;margin-top:6px;' }, [
-                    E('input', { 'type': 'checkbox', 'id': cbId, 'change': function(){ self.cwUpdatePreview(); } }),
-                    E('label', { 'for': cbId, 'style': 'font-size:12px;' }, cbLabel)
+                kids.push(E('label', { 'for': cbId, 'style': 'display:flex;align-items:center;gap:5px;margin-top:6px;font-size:12px;text-align:left;cursor:pointer;' }, [
+                    E('input', { 'type': 'checkbox', 'id': cbId, 'style': 'margin:0;flex:0 0 auto;', 'change': function(){ self.cwUpdatePreview(); } }),
+                    cbLabel
                 ]));
             }
             return E('div', { 'class': 'cw-section', 'style': 'padding:0;' }, [
@@ -2257,15 +2252,15 @@ return view.extend({
             var saveBtn = E('button', {
                 'class': 'btn cbi-button cbi-button-action important',
                 'click': function() {
-                    if (!confirm('Save and apply guest WiFi configuration?')) return;
-                    ui.addNotification('Saving', 'Applying guest WiFi configuration...', 'info');
+                    if (!confirm(_('Save and apply guest WiFi configuration?'))) return;
+                    ui.addTimeLimitedNotification(_('Saving'), _('Applying guest WiFi configuration...'), 8000, 'info');
                     Promise.resolve(gw.handleSave()).then(function() {
-                        ui.addNotification('Success', 'Guest WiFi configuration saved and applied.', 'info');
+                        ui.addNotification(_('Success'), _('Guest WiFi configuration saved and applied.'), 'info');
                     }).catch(function(err) {
-                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                        ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                     });
                 }
-            }, 'Save Guest WiFi');
+            }, _('Save Guest WiFi'));
             return E('div', {}, [node, E('div', { 'style': 'margin-top:20px;text-align:right;' }, [saveBtn])]);
         });
     },
@@ -2296,16 +2291,16 @@ return view.extend({
             }).then(function() {
                 return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/ttyd restart']);
             }).then(function() {
-                ui.addNotification('Success', label + ' applied. ttyd restarted.', 'info');
+                ui.addNotification(_('Success'), _('%s applied. ttyd restarted.').format(label), 'info');
                 self.switchTab('ttyd');
             }).catch(function(err) {
-                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
             });
         }
 
         var loginStatusBadge = autoLogin
-            ? E('span', { 'style': 'padding:4px 10px;border-radius:4px;background:rgba(220,53,69,0.18);color:#dc3545;font-weight:bold;font-size:0.85em;' }, '🔴 Auto-Login: ON')
-            : E('span', { 'style': 'padding:4px 10px;border-radius:4px;background:rgba(40,167,69,0.15);color:#28a745;font-weight:bold;font-size:0.85em;' }, '🔒 Login Required');
+            ? E('span', { 'style': 'padding:4px 10px;border-radius:4px;background:rgba(220,53,69,0.18);color:#dc3545;font-weight:bold;font-size:0.85em;' }, _('🔴 Auto-Login: ON'))
+            : E('span', { 'style': 'padding:4px 10px;border-radius:4px;background:rgba(40,167,69,0.15);color:#28a745;font-weight:bold;font-size:0.85em;' }, _('🔒 Login Required'));
 
         // Active button gets a solid background + thick border.
         // Inactive button stays clickable but dimmed.
@@ -2316,36 +2311,39 @@ return view.extend({
 
         var enableLoginBtn = E('button', {
             'class': 'btn cbi-button',
-            'title': autoLogin ? 'Currently active' : 'Click to enable root auto-login',
+            'title': autoLogin ? _('Currently active') : _('Click to enable root auto-login'),
             'style': autoLogin ? ENABLE_ACTIVE_STYLE : ENABLE_INACTIVE_STYLE,
             'click': function() {
                 if (autoLogin) {
-                    ui.addNotification('Already Enabled', 'Auto-login is already active. Terminal runs ' + currentCmd + '.', 'info');
+                    ui.addNotification(_('Already Enabled'), _('Auto-login is already active. Terminal runs %s.').format(currentCmd), 'info');
                     return;
                 }
-                var msg = '⚠️ WARNING: Enable root auto-login?\n\nThis changes ttyd command to /bin/sh. Anyone who can reach port ' + port + ' gets a root shell without credentials.\n\nEnsure ttyd is bound to loopback or LAN-only and your network is trusted.\n\nProceed?';
+                var msg = _('⚠️ WARNING: Enable root auto-login?') + '\n\n' +
+                    _('This changes ttyd command to /bin/sh. Anyone who can reach port %s gets a root shell without credentials.').format(port) + '\n\n' +
+                    _('Ensure ttyd is bound to loopback or LAN-only and your network is trusted.') + '\n\n' +
+                    _('Proceed?');
                 if (!confirm(msg)) return;
-                setTtydCommand('/bin/sh', 'Auto-login enabled');
+                setTtydCommand('/bin/sh', _('Auto-login enabled'));
             }
-        }, 'Enable Auto-Login');
+        }, _('Enable Auto-Login'));
 
         var disableLoginBtn = E('button', {
             'class': 'btn cbi-button',
-            'title': !autoLogin ? 'Currently active' : 'Click to disable root auto-login',
+            'title': !autoLogin ? _('Currently active') : _('Click to disable root auto-login'),
             'style': !autoLogin ? DISABLE_ACTIVE_STYLE : DISABLE_INACTIVE_STYLE,
             'click': function() {
                 if (!autoLogin) {
-                    ui.addNotification('Already Disabled', 'Terminal already requires login (' + currentCmd + ').', 'info');
+                    ui.addNotification(_('Already Disabled'), _('Terminal already requires login (%s).').format(currentCmd), 'info');
                     return;
                 }
-                if (!confirm('Disable root auto-login and return to /bin/login prompt?')) return;
-                setTtydCommand('/bin/login', 'Auto-login disabled');
+                if (!confirm(_('Disable root auto-login and return to /bin/login prompt?'))) return;
+                setTtydCommand('/bin/login', _('Auto-login disabled'));
             }
-        }, 'Disable Auto-Login');
+        }, _('Disable Auto-Login'));
 
         var statusBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
             E('div', { 'style': 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;' }, [
-                E('strong', {}, 'Terminal (ttyd):'),
+                E('strong', {}, _('Terminal (ttyd):')),
                 E('code', { 'style': 'background:rgba(0,0,0,0.15);padding:2px 6px;border-radius:3px;' }, currentCmd),
                 loginStatusBadge,
                 E('span', { 'style': 'flex:1;' }),
@@ -2357,9 +2355,9 @@ return view.extend({
         var parts = [statusBar];
 
         if (!enabled) {
-            parts.push(E('div', { 'class': 'alert-message warning' }, 'ttyd is disabled. Enable it below and save.'));
+            parts.push(E('div', { 'class': 'alert-message warning' }, _('ttyd is disabled. Enable it below and save.')));
         } else if (port === '0') {
-            parts.push(E('div', { 'class': 'alert-message warning' }, 'Random ttyd port not supported. Set a fixed port below.'));
+            parts.push(E('div', { 'class': 'alert-message warning' }, _('Random ttyd port not supported. Set a fixed port below.')));
         } else {
             var url = override || ((ssl === '1' ? 'https' : 'http') + '://' + window.location.hostname + ':' + port);
             // Mixed content check: if SSL is on but page is HTTP, iframe will be blocked
@@ -2369,9 +2367,9 @@ return view.extend({
 
             if (mixedContentBlocked) {
                 parts.push(E('div', { 'class': 'alert-message warning', 'style': 'margin-bottom:12px;' }, [
-                    E('strong', {}, '⚠️ Mixed content block: '),
-                    E('span', {}, 'ttyd is configured with SSL but you access LuCI over HTTP. The browser will refuse to load the terminal. '),
-                    E('span', {}, 'Either access LuCI over HTTPS, or disable SSL in the ttyd config below.')
+                    E('strong', {}, _('⚠️ Mixed content block: ')),
+                    E('span', {}, _('ttyd is configured with SSL but you access LuCI over HTTP. The browser will refuse to load the terminal. ')),
+                    E('span', {}, _('Either access LuCI over HTTPS, or disable SSL in the ttyd config below.'))
                 ]));
             }
 
@@ -2385,8 +2383,8 @@ return view.extend({
             // Add reconnect buttons
             parts.push(E('div', { 'style': 'margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;' }, [
                 E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
-                    if (!confirm('Force reconnect?\n\nThis kills all ttyd sessions and restarts the service. Any open terminal in another tab will be disconnected.')) return;
-                    ui.addNotification('Reconnect', 'Killing stale ttyd sessions...', 'info');
+                    if (!confirm(_('Force reconnect?') + '\n\n' + _('This kills all ttyd sessions and restarts the service. Any open terminal in another tab will be disconnected.'))) return;
+                    ui.addNotification(_('Reconnect'), _('Killing stale ttyd sessions...'), 'info');
                     self.callSystemCommand('/bin/sh', ['-c', 'killall ttyd 2>/dev/null; sleep 1; /etc/init.d/ttyd restart 2>/dev/null; sleep 1']).then(function() {
                         var f = document.getElementById('qa-ttyd-iframe');
                         if (f) {
@@ -2394,9 +2392,9 @@ return view.extend({
                             f.src = 'about:blank';
                             setTimeout(function(){ f.src = baseSrc + '?_t=' + Date.now(); }, 300);
                         }
-                        ui.addNotification('Reconnected', 'Terminal service restarted. If blank, click Reconnect again.', 'info');
+                        ui.addNotification(_('Reconnected'), _('Terminal service restarted. If blank, click Reconnect again.'), 'info');
                     }).catch(function(err) {
-                        ui.addNotification('Error', 'Restart failed: ' + ((err && err.message) ? err.message : String(err)), 'danger');
+                        ui.addNotification(_('Error'), _('Restart failed: %s').format(((err && err.message) ? err.message : String(err))), 'danger');
                     });
                 } }, _('↻ Force Reconnect')),
                 E('a', {
@@ -2408,7 +2406,7 @@ return view.extend({
                 }, _('↗ Open in New Tab')),
                 E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
                     var f = document.getElementById('qa-ttyd-iframe');
-                    if (!f) { ui.addNotification('Focus', 'Terminal iframe not found.', 'warning'); return; }
+                    if (!f) { ui.addNotification(_('Focus'), _('Terminal iframe not found.'), 'warning'); return; }
                     try {
                         // 1. Focus the iframe element itself
                         f.focus();
@@ -2431,9 +2429,9 @@ return view.extend({
                                 }
                             }
                         }
-                        ui.addNotification('Focused', 'Terminal focused. Start typing to interact.', 'info');
+                        ui.addNotification(_('Focused'), _('Terminal focused. Start typing to interact.'), 'info');
                     } catch(e) {
-                        ui.addNotification('Focus failed', (e && e.message) ? e.message : String(e), 'warning');
+                        ui.addNotification(_('Focus failed'), (e && e.message) ? e.message : String(e), 'warning');
                     }
                 } }, _('Focus Terminal'))
             ]));
@@ -2454,14 +2452,14 @@ return view.extend({
                         var doc = f.contentDocument;
                         if (!doc) return;
                         var bodyText = doc.body ? doc.body.textContent : '';
-                        var looksDead = bodyText.indexOf('to Reconnect') !== -1
-                                     || bodyText.indexOf('Connection closed') !== -1
-                                     || bodyText.indexOf('Disconnected') !== -1
+                        var looksDead = bodyText.indexOf(_('to Reconnect')) !== -1
+                                     || bodyText.indexOf(_('Connection closed')) !== -1
+                                     || bodyText.indexOf(_('Disconnected')) !== -1
                                      || (bodyText.length < 20 && doc.querySelector('canvas') === null);
                         if (looksDead && (Date.now() - lastCheck) > 20000) {
                             lastCheck = Date.now();
-                            ui.addNotification('Terminal idle',
-                                E('p', {}, 'The terminal session expired. Click "Reconnect Terminal" above to resume.'),
+                            ui.addNotification(_('Terminal idle'),
+                                E('p', {}, _('The terminal session expired. Click "Reconnect Terminal" above to resume.')),
                                 'info');
                         }
                     } catch(e) { /* cross-origin */ }
@@ -2496,7 +2494,7 @@ return view.extend({
         s.option(form.Flag, 'url_arg', _('Allow URL args'));
         s.option(form.Flag, 'readonly', _('Read-only'), _('Deny client write access to TTY'));
         o = s.option(form.DynamicList, 'client_option', _('Client option'), _('Send option to client'));
-        o.placeholder = 'key=value';
+        o.placeholder = _('key=value');
         o = s.option(form.Value, 'terminal_type', _('Terminal type'));
         o.placeholder = 'xterm-256color';
         s.option(form.Flag, 'check_origin', _('Check origin'), _('Block cross-origin WebSocket'));
@@ -2513,7 +2511,7 @@ return view.extend({
         o.depends('ssl', '1');
         o = s.option(form.Value, 'ssl_ca', _('SSL CA'));
         o.depends('ssl', '1');
-        o = s.option(form.ListValue, 'debug', _('Debug'), _('Log level'));
+        o = s.option(form.ListValue, _('debug'), _('Debug'), _('Log level'));
         o.value('1', _('Error'));
         o.value('3', _('Warning'));
         o.value('7', _('Notice'));
@@ -2534,15 +2532,15 @@ return view.extend({
                 'class': 'btn cbi-button cbi-button-action important',
                 'style': 'margin-top:14px;',
                 'click': function() {
-                    if (!confirm('Save ttyd config and restart the service?')) return;
-                    ui.addNotification('Saving', 'Applying ttyd config...', 'info');
+                    if (!confirm(_('Save ttyd config and restart the service?'))) return;
+                    ui.addTimeLimitedNotification(_('Saving'), _('Applying ttyd config...'), 8000, 'info');
                     m.save().then(function() {
                         return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/ttyd restart']);
                     }).then(function() {
-                        ui.addNotification('Saved', 'ttyd config updated and service restarted.', 'info');
+                        ui.addNotification(_('Saved'), _('ttyd config updated and service restarted.'), 'info');
                         self.switchTab('ttyd');
                     }).catch(function(err) {
-                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                        ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                     });
                 }
             }, _('Save & Restart ttyd'));
@@ -2555,7 +2553,7 @@ return view.extend({
             parts.push(cfgBox);
             return E('div', {}, parts);
         }).catch(function(err) {
-            parts.push(E('div', { 'class': 'alert-message error' }, 'Form error: ' + (err && err.message ? err.message : String(err))));
+            parts.push(E('div', { 'class': 'alert-message error' }, _('Form error: ') + (err && err.message ? err.message : String(err))));
             return E('div', {}, parts);
         });
     },
@@ -2604,26 +2602,26 @@ return view.extend({
             var month = ss.option(form.Value, 'month', _('Month(0~11)')); month.rmempty = false; month.default = '*'; month.datatype = 'string';
             var week = ss.option(form.Value, 'week', _('Week Day(0~6)')); week.rmempty = true; week.default = '*'; week.datatype = 'string';
             var hour = ss.option(form.Value, 'hour', _('Hour(0~23)')); hour.rmempty = false; hour.default = 0; hour.datatype = 'string';
-            var minute = ss.option(form.Value, 'minute', _('Minute(0~59)')); minute.rmempty = false; minute.default = 0; minute.datatype = 'string';
+            var minute = ss.option(form.Value, _('minute'), _('Minute(0~59)')); minute.rmempty = false; minute.default = 0; minute.datatype = 'string';
 
             // Note: apply_on_parse intentionally NOT set — the Save & Apply button
             // below is the sole writer. Setting apply_on_parse caused the form to
             // commit immediately on open and again on Save, doubling the writes.
             return m.render().then(function(formNode) {
                 var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
-                    if (!confirm('Save scheduled tasks and apply?')) return;
-                    ui.addNotification('Saving', 'Applying scheduled tasks...', 'info');
+                    if (!confirm(_('Save scheduled tasks and apply?'))) return;
+                    ui.addTimeLimitedNotification(_('Saving'), _('Applying scheduled tasks...'), 8000, 'info');
                     m.save().then(function() {
                         return uci.apply(10);
                     }).then(function() {
                         return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-taskplan start']).catch(function(){ return {}; });
                     }).then(function() {
-                        ui.addNotification('Saved', 'Scheduled tasks applied.', 'info');
+                        ui.addNotification(_('Saved'), _('Scheduled tasks applied.'), 'info');
                         self.switchTab('taskplan');
                     }).catch(function(err) {
-                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                        ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                     });
-                } }, 'Save & Apply Scheduled Tasks');
+                } }, _('Save & Apply Scheduled Tasks'));
                 return E('div', {}, [formNode, saveBtn]);
             });
         });
@@ -2667,19 +2665,19 @@ return view.extend({
             // below is the sole writer.
             return m.render().then(function(formNode) {
                 var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
-                    if (!confirm('Save startup tasks and apply?')) return;
-                    ui.addNotification('Saving', 'Applying startup tasks...', 'info');
+                    if (!confirm(_('Save startup tasks and apply?'))) return;
+                    ui.addTimeLimitedNotification(_('Saving'), _('Applying startup tasks...'), 8000, 'info');
                     m.save().then(function() {
                         return uci.apply(10);
                     }).then(function() {
                         return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-taskplan start']).catch(function(){ return {}; });
                     }).then(function() {
-                        ui.addNotification('Saved', 'Startup tasks applied.', 'info');
+                        ui.addNotification(_('Saved'), _('Startup tasks applied.'), 'info');
                         self.switchTab('taskplan');
                     }).catch(function(err) {
-                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                        ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                     });
-                } }, 'Save & Apply Startup Tasks');
+                } }, _('Save & Apply Startup Tasks'));
                 return E('div', {}, [formNode, saveBtn]);
             });
         });
@@ -2718,13 +2716,13 @@ return view.extend({
         }, 100);
 
         var btnClear = E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
-            if (!confirm('Clear the task plan log?')) return;
-            fs.write(logPath, '').then(function() { ui.addNotification('Cleared', 'Log cleared.', 'info'); refreshLog(); }).catch(function(e) { ui.addNotification('Error', e.message, 'danger'); });
+            if (!confirm(_('Clear the task plan log?'))) return;
+            fs.write(logPath, '').then(function() { ui.addNotification(_('Cleared'), _('Log cleared.'), 'info'); refreshLog(); }).catch(function(e) { ui.addNotification(_('Error'), e.message, 'danger'); });
         } }, _('Clear Log'));
         var btnReverse = E('button', { 'class': 'btn cbi-button cbi-button-edit', 'click': function() { reversed = !reversed; refreshLog(); } }, _('Reverse Order'));
         var btnDownload = E('button', { 'class': 'btn cbi-button cbi-button-neutral', 'click': function() {
             fs.read(logPath).then(function(c) {
-                if (!c) { ui.addNotification('Empty', 'Log is empty.', 'info'); return; }
+                if (!c) { ui.addNotification(_('Empty'), _('Log is empty.'), 'info'); return; }
                 var blob = new Blob([c], { type: 'text/plain' });
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
@@ -2755,7 +2753,7 @@ return view.extend({
                 else { b.style.borderBottomColor = 'transparent'; b.style.color = '#666'; b.style.fontWeight = '500'; }
             });
             content.innerHTML = '';
-            content.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ' + id + '...'));
+            content.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading %s...').format(id)));
             Promise.resolve().then(function() {
                 if (id === 'scheduled') return self.renderTaskPlanScheduled();
                 if (id === 'startup') return self.renderTaskPlanStartup();
@@ -2765,7 +2763,7 @@ return view.extend({
                 content.appendChild(node);
             }).catch(function(err) {
                 content.innerHTML = '';
-                content.appendChild(E('div', { 'class': 'alert-message error' }, 'Task Plan error: ' + (err && err.message ? err.message : String(err))));
+                content.appendChild(E('div', { 'class': 'alert-message error' }, _('Task Plan error: ') + (err && err.message ? err.message : String(err))));
             });
         }
 
@@ -2813,7 +2811,7 @@ return view.extend({
             else { b.style.borderBottomColor = 'transparent'; b.style.color = '#666'; b.style.fontWeight = '500'; }
         }
         this.nsContent.innerHTML = '';
-        this.nsContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ' + id + '...'));
+        this.nsContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading %s...').format(id)));
         var builder = { mode: 'renderNsMode', wan: 'renderNsWan', wireless: 'renderNsWireless',
                         firmware: 'renderNsFirmware', shortcuts: 'renderNsShortcuts', advanced: 'renderNsAdvanced' }[id];
         Promise.resolve(self[builder]()).then(function(node) {
@@ -2821,7 +2819,7 @@ return view.extend({
             self.nsContent.appendChild(node);
         }).catch(function(err) {
             self.nsContent.innerHTML = '';
-            self.nsContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Error: ' + (err && err.message ? err.message : String(err))));
+            self.nsContent.appendChild(E('div', { 'class': 'alert-message error' }, _('Error: ') + (err && err.message ? err.message : String(err))));
         });
     },
 
@@ -2838,12 +2836,12 @@ return view.extend({
     renderNetworkSetupInner: function() {
         var self = this;
         var subs = [
-            { id: 'mode', label: 'Mode Selection' },
-            { id: 'wan', label: 'WAN Settings' },
-            { id: 'wireless', label: 'Wireless' },
-            { id: 'firmware', label: 'Firmware' },
-            { id: 'shortcuts', label: 'Shortcuts' },
-            { id: 'advanced', label: 'Advanced' }
+            { id: 'mode', label: _('Mode Selection') },
+            { id: 'wan', label: _('WAN Settings') },
+            { id: 'wireless', label: _('Wireless') },
+            { id: 'firmware', label: _('Firmware') },
+            { id: 'shortcuts', label: _('Shortcuts') },
+            { id: 'advanced', label: _('Advanced') }
         ];
         var subBar = E('div', { 'style': 'display:flex;gap:4px;border-bottom:2px solid rgba(0,0,0,0.08);margin:0 0 16px 0;flex-wrap:wrap;' });
         subs.forEach(function(t) {
@@ -2857,8 +2855,8 @@ return view.extend({
         this.nsContent = E('div');
 
         var intro = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:0.9em;' }, [
-            E('strong', {}, 'Smart mode: '),
-            E('span', {}, 'Only fields you change are written. Backup taken before every apply. Aggressive rebuild available in Advanced.')
+            E('strong', {}, _('Smart mode: ')),
+            E('span', {}, _('Only fields you change are written. Backup taken before every apply. Aggressive rebuild available in Advanced.'))
         ]);
 
         setTimeout(function() { self.nsShow('mode'); }, 0);
@@ -2901,33 +2899,33 @@ return view.extend({
                 'onmouseover': function() { this.style.transform = 'translateY(-2px)'; },
                 'onmouseout': function() { this.style.transform = 'translateY(0)'; },
                 'click': function() {
-                    if (!confirm('Switch mode to "' + label + '"?\n\nFinish configuration in WAN Settings.')) return;
+                    if (!confirm(_('Switch mode to "%s"?').format(label) + '\n\n' + _('Finish configuration in WAN Settings.'))) return;
                     uci.load('wizard').then(function() {
                         uci.set('wizard', 'default', 'wan_proto', mode);
                         return uci.save();
                     }).then(function() {
-                        ui.addNotification('Mode set', 'Now fill in WAN Settings.', 'info');
+                        ui.addNotification(_('Mode set'), _('Now fill in WAN Settings.'), 'info');
                         self.nsShow('wan');
                     }).catch(function(err) {
-                        ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                        ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                     });
                 }
             }, [
                 E('div', { 'style': 'font-size:2.5em;margin-bottom:8px;' }, mode === 'pppoe' ? '🛰️' : (mode === 'dhcp' ? '🔌' : '🔀')),
                 E('div', { 'style': 'font-weight:bold;font-size:1.1em;color:' + color + ';margin-bottom:6px;' }, label),
                 E('div', { 'style': 'font-size:0.85em;color:#888;line-height:1.4;' }, desc),
-                active ? E('div', { 'style': 'margin-top:10px;font-size:0.8em;font-weight:bold;color:' + color + ';' }, '● CURRENT') : ''
+                active ? E('div', { 'style': 'margin-top:10px;font-size:0.8em;font-weight:bold;color:' + color + ';' }, _('● CURRENT')) : ''
             ]);
             return c;
         }
 
         return E('div', {}, [
-            E('h3', { 'style': 'margin-top:0;' }, 'Select Network Mode'),
-            E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Choose the mode that matches your setup.'),
+            E('h3', { 'style': 'margin-top:0;' }, _('Select Network Mode')),
+            E('p', { 'style': 'color:#888;font-size:0.9em;' }, _('Choose the mode that matches your setup.')),
             E('div', { 'style': 'display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;' }, [
-                card('dhcp', 'DHCP Client', 'Default router. WAN gets IP from upstream.', '#339af0'),
-                card('pppoe', 'PPPoE Dial-up', 'Fiber/DSL. Requires username & password.', '#ff6b6b'),
-                card('siderouter', 'Side-Router', 'Bypass gateway. LAN stays, WAN unused.', '#51cf66')
+                card('dhcp', _('DHCP Client'), _('Default router. WAN gets IP from upstream.'), '#339af0'),
+                card('pppoe', _('PPPoE Dial-up'), _('Fiber/DSL. Requires username & password.'), '#ff6b6b'),
+                card('siderouter', _('Side-Router'), _('Bypass gateway. LAN stays, WAN unused.'), '#51cf66')
             ])
         ]);
     },
@@ -2958,17 +2956,17 @@ return view.extend({
         var synflood = uci.get('wizard', 'default', 'synflood') || '0';
 
         function vRow(label, id, val, type, ph) {
-            return E('div', { 'style': 'margin-bottom:10px;' }, [
+            return E('div', { 'style': 'max-width:400px;margin-bottom:10px;' }, [
                 E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, label),
                 E('input', { 'id': 'ns-wan-' + id, 'type': type || 'text', 'value': val, 'placeholder': ph || '', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;box-sizing:border-box;' })
             ]);
         }
         function fRow(label, id, val, hint) {
-            var cb = E('input', { 'id': 'ns-wan-' + id, 'type': 'checkbox' });
+            var cb = E('input', { 'id': 'ns-wan-' + id, 'type': 'checkbox', 'style': 'margin:0;flex:0 0 auto;' });
             cb.checked = !!val;
-            return E('div', { 'style': 'margin-bottom:10px;display:flex;align-items:center;gap:8px;' }, [
-                cb, E('label', { 'style': 'font-size:0.9em;' }, label),
-                hint ? E('span', { 'style': 'font-size:0.78em;color:#888;' }, hint) : null
+            return E('div', { 'style': 'max-width:400px;margin-bottom:10px;' }, [
+                E('label', { 'for': 'ns-wan-' + id, 'style': 'display:flex;align-items:center;gap:8px;font-size:0.9em;text-align:left;margin:0;cursor:pointer;' }, [cb, label]),
+                hint ? E('div', { 'style': 'font-size:0.78em;color:#888;margin:2px 0 0 24px;' }, hint) : null
             ]);
         }
         function selRow(label, id, val, options) {
@@ -2978,13 +2976,13 @@ return view.extend({
                 if (o[0] === val) opt.selected = true;
                 s.appendChild(opt);
             });
-            return E('div', { 'style': 'margin-bottom:10px;' }, [
+            return E('div', { 'style': 'max-width:400px;margin-bottom:10px;' }, [
                 E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, label), s
             ]);
         }
         function dnsRow(label, id, val) {
             var v = (Array.isArray(val) ? val.join(', ') : (val || ''));
-            return E('div', { 'style': 'margin-bottom:10px;' }, [
+            return E('div', { 'style': 'max-width:400px;margin-bottom:10px;' }, [
                 E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, label),
                 E('input', { 'id': 'ns-wan-' + id, 'type': 'text', 'value': v, 'placeholder': '1.1.1.1, 8.8.8.8', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;font-size:0.95em;' })
             ]);
@@ -3001,74 +2999,74 @@ return view.extend({
 
         var rows = [];
 
-        rows.push(selRow('WAN Protocol / Mode', 'proto', proto, [
-            ['dhcp', 'DHCP Client'],
-            ['pppoe', 'PPPoE Dial-up'],
-            ['siderouter', 'Side-Router']
+        rows.push(selRow(_('WAN Protocol / Mode'), 'proto', proto, [
+            ['dhcp', _('DHCP Client')],
+            ['pppoe', _('PPPoE Dial-up')],
+            ['siderouter', _('Side-Router')]
         ]));
 
         if (proto !== 'siderouter') {
-            rows.push(selRow('WAN interface device', 'iface', wanIf, netDevs.map(function(d){ return [d, d]; })));
-            rows.push(fRow('Add LAN port configuration (setlan)', 'setlan', setlan === '1'));
+            rows.push(selRow(_('WAN interface device'), 'iface', wanIf, netDevs.map(function(d){ return [d, d]; })));
+            rows.push(fRow(_('Add LAN port configuration (setlan)'), 'setlan', setlan === '1'));
         }
 
         if (proto === 'pppoe') {
-            rows.push(vRow('PPPoE Username', 'pppoe_u', pppoeU));
-            rows.push(vRow('PPPoE Password', 'pppoe_p', pppoeP, 'password'));
+            rows.push(vRow(_('PPPoE Username'), 'pppoe_u', pppoeU));
+            rows.push(vRow(_('PPPoE Password'), 'pppoe_p', pppoeP, 'password'));
         }
 
         if (proto === 'dhcp') {
-            rows.push(selRow('WAN IP address mode', 'dhcp_proto', dhcpProto, [
-                ['dhcp', 'DHCP (automatic)'],
-                ['static', 'Static IP']
+            rows.push(selRow(_('WAN IP address mode'), 'dhcp_proto', dhcpProto, [
+                ['dhcp', _('DHCP (automatic)')],
+                ['static', _('Static IP')]
             ]));
             if (dhcpProto === 'static') {
-                rows.push(vRow('WAN IPv4 Address', 'wan_ip', wanIp));
-                rows.push(vRow('WAN IPv4 Netmask', 'wan_mask', wanMask));
-                rows.push(vRow('WAN IPv4 Gateway', 'wan_gw', wanGw));
+                rows.push(vRow(_('WAN IPv4 Address'), 'wan_ip', wanIp));
+                rows.push(vRow(_('WAN IPv4 Netmask'), 'wan_mask', wanMask));
+                rows.push(vRow(_('WAN IPv4 Gateway'), 'wan_gw', wanGw));
             }
         }
 
         if (proto === 'dhcp' || proto === 'pppoe') {
-            rows.push(dnsRow('WAN custom DNS (comma-separated, empty = auto)', 'wan_dns', wanDns));
+            rows.push(dnsRow(_('WAN custom DNS (comma-separated, empty = auto)'), 'wan_dns', wanDns));
         }
 
         if (proto === 'siderouter') {
-            rows.push(selRow('LAN IP address mode', 'lan_proto', lanProto, [
-                ['static', 'Static IP'],
-                ['dhcp', 'DHCP client']
+            rows.push(selRow(_('LAN IP address mode'), 'lan_proto', lanProto, [
+                ['static', _('Static IP')],
+                ['dhcp', _('DHCP client')]
             ]));
         }
 
         // LAN IP fields
         var showLan = (proto === 'siderouter') || (proto !== 'siderouter' && setlan === '1');
         if (showLan) {
-            rows.push(vRow('LAN IPv4 Address', 'lan_ip', lanIp));
-            rows.push(selRow('LAN IPv4 Netmask', 'lan_mask', lanMask, [
+            rows.push(vRow(_('LAN IPv4 Address'), 'lan_ip', lanIp));
+            rows.push(selRow(_('LAN IPv4 Netmask'), 'lan_mask', lanMask, [
                 ['255.255.255.0', '255.255.255.0 (/24)'],
                 ['255.255.0.0', '255.255.0.0 (/16)'],
                 ['255.0.0.0', '255.0.0.0 (/8)']
             ]));
             if (proto === 'siderouter') {
-                rows.push(vRow('LAN Gateway (upstream router IP)', 'lan_gw', lanGw));
-                rows.push(dnsRow('LAN custom DNS (comma-separated)', 'lan_dns', lanDns));
+                rows.push(vRow(_('LAN Gateway (upstream router IP)'), 'lan_gw', lanGw));
+                rows.push(dnsRow(_('LAN custom DNS (comma-separated)'), 'lan_dns', lanDns));
             }
         }
 
-        rows.push(fRow('Enable IPv6', 'ipv6', ipv6On));
-        rows.push(fRow('Disable DHCP Server on LAN', 'lan_dhcp_off', lanDhcpOff,
-            'Recommended for siderouter mode.'));
-        rows.push(fRow('Enable DNS notification to clients', 'dnsset', dnsset === '1'));
+        rows.push(fRow(_('Enable IPv6'), 'ipv6', ipv6On));
+        rows.push(fRow(_('Disable DHCP Server on LAN'), 'lan_dhcp_off', lanDhcpOff,
+            _('Recommended for siderouter mode.')));
+        rows.push(fRow(_('Enable DNS notification to clients'), 'dnsset', dnsset === '1'));
         if (dnsset === '1') {
-            rows.push(selRow('DNS to push to clients', 'dns_tables', dnsTables, [
-                ['1', 'Use router LAN IP (default)'],
-                ['223.5.5.5', 'Ali DNS: 223.5.5.5'],
-                ['8.8.8.8', 'Google DNS: 8.8.8.8'],
-                ['1.1.1.1', 'Cloudflare DNS: 1.1.1.1']
+            rows.push(selRow(_('DNS to push to clients'), 'dns_tables', dnsTables, [
+                ['1', _('Use router LAN IP (default)')],
+                ['223.5.5.5', _('Ali DNS: 223.5.5.5')],
+                ['8.8.8.8', _('Google DNS: 8.8.8.8')],
+                ['1.1.1.1', _('Cloudflare DNS: 1.1.1.1')]
             ]));
         }
-        rows.push(fRow('Enable SYN-flood defense', 'synflood', synflood === '1',
-            'Adds firewall.syn_flood=1, synflood_protect=1.'));
+        rows.push(fRow(_('Enable SYN-flood defense'), 'synflood', synflood === '1',
+            _('Adds firewall.syn_flood=1, synflood_protect=1.')));
 
         var saveBtn = E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:14px;', 'click': function() {
             var changes = [];
@@ -3084,7 +3082,7 @@ return view.extend({
             // Mode change
             if (nProto !== proto) {
                 changes.push(['wizard', 'default', 'wan_proto', nProto]);
-                list.push('Mode → ' + nProto);
+                list.push(_('Mode → ') + nProto);
 
                 // Mode-specific network writes
                 if (nProto === 'siderouter') {
@@ -3099,33 +3097,33 @@ return view.extend({
 
             if (nProto !== 'siderouter' && nIface && nIface !== wanIf) {
                 changes.push(['network', 'wan', 'device', nIface]);
-                list.push('WAN device → ' + nIface);
+                list.push(_('WAN device → ') + nIface);
             }
 
             if (nSetlan !== setlan) {
                 changes.push(['wizard', 'default', 'setlan', nSetlan]);
-                list.push('setlan → ' + nSetlan);
+                list.push(_('setlan → ') + nSetlan);
             }
 
             if (nProto === 'pppoe') {
                 var nu = get('pppoe_u'), np = get('pppoe_p');
-                if (nu !== pppoeU) { changes.push(['network', 'wan', 'username', nu]); list.push('PPPoE username'); }
-                if (np !== pppoeP) { changes.push(['network', 'wan', 'password', np]); list.push('PPPoE password'); }
+                if (nu !== pppoeU) { changes.push(['network', 'wan', 'username', nu]); list.push(_('PPPoE username')); }
+                if (np !== pppoeP) { changes.push(['network', 'wan', 'password', np]); list.push(_('PPPoE password')); }
             }
 
             if (nProto === 'dhcp') {
                 var ndp = get('dhcp_proto');
                 if (ndp === 'static') {
-                    if (get('wan_ip')) { changes.push(['network', 'wan', 'ipaddr', get('wan_ip')]); list.push('WAN IP → ' + get('wan_ip')); }
-                    if (get('wan_mask')) { changes.push(['network', 'wan', 'netmask', get('wan_mask')]); list.push('WAN mask'); }
-                    if (get('wan_gw')) { changes.push(['network', 'wan', 'gateway', get('wan_gw')]); list.push('WAN GW'); }
+                    if (get('wan_ip')) { changes.push(['network', 'wan', 'ipaddr', get('wan_ip')]); list.push(_('WAN IP → ') + get('wan_ip')); }
+                    if (get('wan_mask')) { changes.push(['network', 'wan', 'netmask', get('wan_mask')]); list.push(_('WAN mask')); }
+                    if (get('wan_gw')) { changes.push(['network', 'wan', 'gateway', get('wan_gw')]); list.push(_('WAN GW')); }
                     changes.push(['network', 'wan', 'proto', 'static']);
                 }
             }
 
             if (nProto === 'dhcp' || nProto === 'pppoe') {
                 var wdns = get('wan_dns').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-                if (wdns.length) { changes.push(['network', 'wan', 'dns', wdns]); list.push('WAN DNS set'); }
+                if (wdns.length) { changes.push(['network', 'wan', 'dns', wdns]); list.push(_('WAN DNS set')); }
             }
 
             // LAN fields (recompute showLan from the NEW values, not render-time state)
@@ -3133,40 +3131,40 @@ return view.extend({
             if (nShowLan) {
                 var nLanIp = get('lan_ip');
                 var nLanMask = get('lan_mask');
-                if (nLanIp && nLanIp !== lanIp) { changes.push(['network', 'lan', 'ipaddr', nLanIp]); list.push('LAN IP → ' + nLanIp); }
-                if (nLanMask && nLanMask !== lanMask) { changes.push(['network', 'lan', 'netmask', nLanMask]); list.push('LAN mask → ' + nLanMask); }
+                if (nLanIp && nLanIp !== lanIp) { changes.push(['network', 'lan', 'ipaddr', nLanIp]); list.push(_('LAN IP → ') + nLanIp); }
+                if (nLanMask && nLanMask !== lanMask) { changes.push(['network', 'lan', 'netmask', nLanMask]); list.push(_('LAN mask → ') + nLanMask); }
                 if (nProto === 'siderouter') {
                     var nGw = get('lan_gw');
-                    if (nGw !== lanGw) { changes.push(['network', 'lan', 'gateway', nGw || '']); list.push('LAN GW → ' + (nGw || '(none)')); }
+                    if (nGw !== lanGw) { changes.push(['network', 'lan', 'gateway', nGw || '']); list.push(_('LAN GW → ') + (nGw || _('(none)'))); }
                     var ldns = get('lan_dns').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
                     changes.push(['network', 'lan', 'dns', ldns]);
-                    if (ldns.length) list.push('LAN DNS set');
+                    if (ldns.length) list.push(_('LAN DNS set'));
 
                     var nlp = get('lan_proto');
-                    if (nlp !== lanProto) { changes.push(['network', 'lan', 'proto', nlp]); list.push('LAN proto → ' + nlp); }
+                    if (nlp !== lanProto) { changes.push(['network', 'lan', 'proto', nlp]); list.push(_('LAN proto → ') + nlp); }
                 }
             }
 
             var nIpv6 = getCb('ipv6');
             if (nIpv6 !== ipv6On) {
                 changes.push(['network', 'wan', 'ipv6', nIpv6 ? 'auto' : '0']);
-                list.push('IPv6 → ' + (nIpv6 ? 'on' : 'off'));
+                list.push(_('IPv6 → ') + (nIpv6 ? 'on' : 'off'));
             }
 
             var nDhcpOff = getCb('lan_dhcp_off');
             if (nDhcpOff !== lanDhcpOff) {
                 changes.push(['dhcp', 'lan', 'ignore', nDhcpOff ? '1' : '0']);
-                list.push('LAN DHCP → ' + (nDhcpOff ? 'off' : 'on'));
+                list.push(_('LAN DHCP → ') + (nDhcpOff ? 'off' : 'on'));
             }
 
             var nDnsset = getCb('dnsset') ? '1' : '0';
             if (nDnsset !== dnsset) {
                 changes.push(['wizard', 'default', 'dnsset', nDnsset]);
-                list.push('DNS notify → ' + nDnsset);
+                list.push(_('DNS notify → ') + nDnsset);
             }
             if (nDnsset === '1') {
                 var ndt = get('dns_tables');
-                if (ndt !== dnsTables) { changes.push(['wizard', 'default', 'dns_tables', ndt]); list.push('DNS push → ' + ndt); }
+                if (ndt !== dnsTables) { changes.push(['wizard', 'default', 'dns_tables', ndt]); list.push(_('DNS push → ') + ndt); }
             }
 
             var nSf = getCb('synflood') ? '1' : '0';
@@ -3174,13 +3172,13 @@ return view.extend({
                 changes.push(['wizard', 'default', 'synflood', nSf]);
                 if (nSf === '1') { changes.push(['firewall', '@defaults[0]', 'syn_flood', '1']); changes.push(['firewall', '@defaults[0]', 'synflood_protect', '1']); }
                 else { changes.push(['firewall', '@defaults[0]', 'syn_flood', '0']); changes.push(['firewall', '@defaults[0]', 'synflood_protect', '0']); }
-                list.push('SYN-flood → ' + nSf);
+                list.push(_('SYN-flood → ') + nSf);
             }
 
-            if (list.length === 0) { ui.addNotification('No changes', 'Nothing to save.', 'info'); return; }
-            if (!confirm('Save WAN changes?\n\n• ' + list.join('\n• ') + '\n\nBackup will be taken first.')) return;
+            if (list.length === 0) { ui.addNotification(_('No changes'), _('Nothing to save.'), 'info'); return; }
+            if (!confirm(_('Save WAN changes?') + '\n\n• ' + list.join('\n• ') + '\n\n' + _('Backup will be taken first.'))) return;
 
-            ui.addNotification('Saving', list.length + ' change(s) applying...', 'info');
+            ui.addTimeLimitedNotification(_('Saving'), _('%s change(s) applying...').format(list.length), 8000, 'info');
             var lanIpChanged = (nShowLan && get('lan_ip') && get('lan_ip') !== lanIp);
 
             self.nsFormSave(changes).then(function() {
@@ -3194,10 +3192,10 @@ return view.extend({
                     var sec = 15;
                     var countSpan = E('strong', {}, String(sec));
                     ui.showModal(_('LAN IP Address Changed'), [
-                        E('p', {}, ['New LAN IP: ', E('strong', {}, newIp)]),
-                        E('p', {}, ['Redirecting in ', countSpan, ' seconds...']),
+                        E('p', {}, [_('New LAN IP: '), E('strong', {}, newIp)]),
+                        E('p', {}, [_('Redirecting in '), countSpan, _(' seconds...')]),
                         E('div', { 'style': 'margin-top:10px;text-align:right;' }, [
-                            E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() { window.location.href = window.location.protocol + '//' + newIp + '/cgi-bin/luci/'; } }, 'Redirect Now')
+                            E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() { window.location.href = window.location.protocol + '//' + newIp + '/cgi-bin/luci/'; } }, _('Redirect Now'))
                         ])
                     ]);
                     var timer = setInterval(function() {
@@ -3206,20 +3204,20 @@ return view.extend({
                         if (sec <= 0) { clearInterval(timer); window.location.href = window.location.protocol + '//' + newIp + '/cgi-bin/luci/'; }
                     }, 1000);
                 } else {
-                    ui.addNotification('Saved', 'Network settings updated.', 'info');
+                    ui.addNotification(_('Saved'), _('Network settings updated.'), 'info');
                     self.nsShow('wan');
                 }
             }).catch(function(err) {
-                ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
             });
         } }, _('Save WAN Settings (smart diff)'));
 
         return E('div', {}, [
-            E('h3', { 'style': 'margin-top:0;' }, 'WAN Settings — ' + proto),
+            E('h3', { 'style': 'margin-top:0;' }, _('WAN Settings — %s').format(proto)),
             E('div', { 'style': 'background:rgba(0,0,0,0.03);border-radius:6px;padding:10px;margin-bottom:14px;font-size:0.85em;' }, [
-                E('div', {}, ['Current mode: ', E('strong', {}, proto)]),
-                E('div', {}, ['WAN device: ', E('code', {}, wanIf)]),
-                E('div', {}, ['LAN IP: ', E('code', {}, lanIp + '/' + lanMask)])
+                E('div', {}, [_('Current mode: '), E('strong', {}, proto)]),
+                E('div', {}, [_('WAN device: '), E('code', {}, wanIf)]),
+                E('div', {}, [_('LAN IP: '), E('code', {}, lanIp + '/' + lanMask)])
             ]),
             E('div', {}, rows),
             saveBtn
@@ -3229,11 +3227,11 @@ return view.extend({
     renderNsWireless: function() {
         var self = this;
         var devices = uci.sections('wireless', 'wifi-device') || [];
-        if (devices.length === 0) return E('div', { 'class': 'alert-message warning' }, 'No wireless devices detected.');
+        if (devices.length === 0) return E('div', { 'class': 'alert-message warning' }, _('No wireless devices detected.'));
 
         var ifaces = uci.sections('wireless', 'wifi-iface') || [];
         var apIfaces = ifaces.filter(function(i){ return i.mode === 'ap' || !i.mode; });
-        if (apIfaces.length === 0) return E('div', { 'class': 'alert-message warning' }, 'No AP wireless interfaces found.');
+        if (apIfaces.length === 0) return E('div', { 'class': 'alert-message warning' }, _('No AP wireless interfaces found.'));
 
         // Get base SSID (strip band suffix from first AP)
         var rawSsid = apIfaces[0].ssid || '';
@@ -3244,7 +3242,7 @@ return view.extend({
         var ssidIn = E('input', { 'id': 'ns-wl-ssid', 'type': 'text', 'value': baseSsid, 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
         var keyIn = E('input', { 'id': 'ns-wl-key', 'type': 'password', 'value': key, 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
         var encSel = E('select', { 'id': 'ns-wl-enc', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
-        [['psk2','WPA2-PSK'],['sae','WPA3-SAE'],['sae-mixed','WPA2/WPA3 Mixed'],['psk','WPA-PSK'],['none','Open']].forEach(function(o) {
+        [['psk2','WPA2-PSK'],['sae','WPA3-SAE'],['sae-mixed',_('WPA2/WPA3 Mixed')],['psk','WPA-PSK'],['none',_('Open')]].forEach(function(o) {
             var opt = E('option', { 'value': o[0] }, o[1]);
             if (o[0] === enc) opt.selected = true;
             encSel.appendChild(opt);
@@ -3267,24 +3265,24 @@ return view.extend({
         var keysDiffer = Object.keys(distinctKeys).length > 1;
 
         return E('div', {}, [
-            E('h3', { 'style': 'margin-top:0;' }, 'Wireless Settings'),
-            E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Base SSID will auto-append _2.4G, _5G, _6G per radio.'),
+            E('h3', { 'style': 'margin-top:0;' }, _('Wireless Settings')),
+            E('p', { 'style': 'color:#888;font-size:0.9em;' }, _('Base SSID will auto-append _2.4G, _5G, _6G per radio.')),
             E('div', { 'style': 'margin-bottom:12px;font-size:0.85em;' }, bandInfo.map(function(b) {
-                return E('div', {}, [b.device + ' (' + b.band + ') → AP: ', E('code', {}, b.iface)]);
+                return E('div', {}, [_('%s (%s) → AP:').format(b.device, b.band), E('code', {}, ' ' + b.iface)]);
             })),
-            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Base SSID'), ssidIn]),
-            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Encryption'), encSel]),
-            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Password'), keyIn]),
+            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, _('Base SSID')), ssidIn]),
+            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, _('Encryption')), encSel]),
+            E('div', { 'style': 'margin-bottom:12px;' }, [E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, _('Password')), keyIn]),
             keysDiffer ? E('div', { 'class': 'alert-message warning', 'style': 'margin-bottom:12px;' },
                 _('Your APs currently have different passwords. Saving will overwrite every AP with the password entered above.')) : null,
             E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
                 var ns = document.getElementById('ns-wl-ssid').value.trim();
                 var nk = document.getElementById('ns-wl-key').value;
                 var ne = document.getElementById('ns-wl-enc').value;
-                if (!ns) { ui.addNotification('Error', 'SSID required.', 'danger'); return; }
-                if (ne !== 'none' && nk && nk.length < 8) { ui.addNotification('Error', 'Password must be ≥ 8 chars.', 'danger'); return; }
-                if (keysDiffer && nk && !confirm('WARNING: APs currently have DIFFERENT passwords. Saving will overwrite all of them with the new one.\n\nContinue?')) return;
-                if (!confirm('Apply wireless changes? SSID: ' + ns + ', encryption: ' + ne)) return;
+                if (!ns) { ui.addNotification(_('Error'), _('SSID required.'), 'danger'); return; }
+                if (ne !== 'none' && nk && nk.length < 8) { ui.addNotification(_('Error'), _('Password must be ≥ 8 chars.'), 'danger'); return; }
+                if (keysDiffer && nk && !confirm(_('WARNING: APs currently have DIFFERENT passwords. Saving will overwrite all of them with the new one.') + '\n\n' + _('Continue?'))) return;
+                if (!confirm(_('Apply wireless changes? SSID: %s, encryption: %s').format(ns, ne))) return;
 
                 var changes = [];
                 bandInfo.forEach(function(b) {
@@ -3301,9 +3299,9 @@ return view.extend({
                 self.nsFormSave(changes).then(function() {
                     return self.callSystemCommand('/bin/sh', ['-c', '/sbin/wifi reload']);
                 }).then(function() {
-                    ui.addNotification('Saved', 'Wireless updated.', 'info');
+                    ui.addNotification(_('Saved'), _('Wireless updated.'), 'info');
                     self.nsShow('wireless');
-                }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                }).catch(function(err) { ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger'); });
             } }, _('Save Wireless'))
         ]);
     },
@@ -3318,28 +3316,28 @@ return view.extend({
             landing_page: uci.get('wizard', 'default', 'landing_page') || 'default'
         };
         function fRow(label, id, val, hint) {
-            var cb = E('input', { 'id': 'ns-fw-' + id, 'type': 'checkbox' });
+            var cb = E('input', { 'id': 'ns-fw-' + id, 'type': 'checkbox', 'style': 'margin:0;flex:0 0 auto;' });
             cb.checked = (val === '1');
-            return E('div', { 'style': 'margin-bottom:12px;display:flex;align-items:center;gap:8px;' }, [
-                cb, E('label', { 'style': 'font-size:0.9em;' }, label),
-                hint ? E('span', { 'style': 'font-size:0.78em;color:#888;' }, hint) : null
+            return E('div', { 'style': 'max-width:400px;margin-bottom:12px;' }, [
+                E('label', { 'for': 'ns-fw-' + id, 'style': 'display:flex;align-items:center;gap:8px;font-size:0.9em;text-align:left;margin:0;cursor:pointer;' }, [cb, label]),
+                hint ? E('div', { 'style': 'font-size:0.78em;color:#888;margin:2px 0 0 24px;' }, hint) : null
             ]);
         }
         var landingSel = E('select', { 'id': 'ns-fw-landing', 'style': 'width:100%;max-width:400px;padding:6px 10px;border:1px solid #ccc;border-radius:4px;' });
-        [['default','Default'],['routerdog','RouterDog'],['nas','NAS'],['next-nas','Next-NAS'],['router','Router']].forEach(function(o) {
+        [['default',_('Default')],['routerdog',_('RouterDog')],['nas',_('NAS')],['next-nas',_('Next-NAS')],['router',_('Router')]].forEach(function(o) {
             var opt = E('option', { 'value': o[0] }, o[1]);
             if (o[0] === cur.landing_page) opt.selected = true;
             landingSel.appendChild(opt);
         });
 
         return E('div', {}, [
-            E('h3', { 'style': 'margin-top:0;' }, 'Firmware & System Settings'),
-            fRow('Firmware upgrade notices', 'autoupgrade', cur.autoupgrade_fm),
-            fRow('Run CoreMark on boot', 'coremark', cur.coremark, 'Runs once into /etc/bench.log.'),
-            fRow('Persistent login cookies', 'cookie', cur.cookie_p),
-            fRow('Enforce HTTPS redirect', 'https', cur.https, 'Requires uhttpd SSL or nginx.'),
-            E('div', { 'style': 'margin-bottom:12px;' }, [
-                E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, 'Landing page'), landingSel
+            E('h3', { 'style': 'margin-top:0;' }, _('Firmware & System Settings')),
+            fRow(_('Firmware upgrade notices'), 'autoupgrade', cur.autoupgrade_fm),
+            fRow(_('Run CoreMark on boot'), 'coremark', cur.coremark, _('Runs once into /etc/bench.log.')),
+            fRow(_('Persistent login cookies'), 'cookie', cur.cookie_p),
+            fRow(_('Enforce HTTPS redirect'), 'https', cur.https, _('Requires uhttpd SSL or nginx.')),
+            E('div', { 'style': 'max-width:400px;margin-bottom:12px;' }, [
+                E('label', { 'style': 'display:block;font-size:0.9em;color:#888;margin-bottom:4px;' }, _('Landing page')), landingSel
             ]),
             E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:8px;', 'click': function() {
                 var changes = [];
@@ -3349,19 +3347,19 @@ return view.extend({
                 var np = document.getElementById('ns-fw-cookie').checked ? '1' : '0';
                 var nh = document.getElementById('ns-fw-https').checked ? '1' : '0';
                 var nl = document.getElementById('ns-fw-landing').value;
-                if (na !== cur.autoupgrade_fm) { changes.push(['wizard', 'default', 'autoupgrade_fm', na]); list.push('upgrade notices → ' + na); }
-                if (nc !== cur.coremark) { changes.push(['wizard', 'default', 'coremark', nc]); list.push('coremark → ' + nc); }
-                if (np !== cur.cookie_p) { changes.push(['wizard', 'default', 'persistent_cookies', np]); list.push('cookies → ' + np); }
-                if (nh !== cur.https) { changes.push(['wizard', 'default', 'https', nh]); list.push('https → ' + nh); }
-                if (nl !== cur.landing_page) { changes.push(['wizard', 'default', 'landing_page', nl]); list.push('landing → ' + nl); }
-                if (list.length === 0) { ui.addNotification('No changes', 'Nothing to save.', 'info'); return; }
-                if (!confirm('Save firmware settings?\n\n• ' + list.join('\n• '))) return;
+                if (na !== cur.autoupgrade_fm) { changes.push(['wizard', 'default', 'autoupgrade_fm', na]); list.push(_('upgrade notices → ') + na); }
+                if (nc !== cur.coremark) { changes.push(['wizard', 'default', 'coremark', nc]); list.push(_('coremark → ') + nc); }
+                if (np !== cur.cookie_p) { changes.push(['wizard', 'default', 'persistent_cookies', np]); list.push(_('cookies → ') + np); }
+                if (nh !== cur.https) { changes.push(['wizard', 'default', 'https', nh]); list.push(_('https → ') + nh); }
+                if (nl !== cur.landing_page) { changes.push(['wizard', 'default', 'landing_page', nl]); list.push(_('landing → ') + nl); }
+                if (list.length === 0) { ui.addNotification(_('No changes'), _('Nothing to save.'), 'info'); return; }
+                if (!confirm(_('Save firmware settings?') + '\n\n• ' + list.join('\n• '))) return;
                 self.nsFormSave(changes).then(function() {
                     // Re-run init to pick up cookie/https changes
                     return self.callSystemCommand('/bin/sh', ['-c', '/etc/init.d/quickactions-netwizard restart']).catch(function(){ return {}; });
                 }).then(function() {
-                    ui.addNotification('Saved', 'Firmware settings updated.', 'info');
-                }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                    ui.addNotification(_('Saved'), _('Firmware settings updated.'), 'info');
+                }).catch(function(err) { ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger'); });
             } }, _('Save Firmware Settings'))
         ]);
     },
@@ -3380,29 +3378,29 @@ return view.extend({
                         E('div', { 'style': 'font-weight:bold;margin-bottom:4px;' }, label + '/'),
                         E('div', { 'style': 'font-size:0.85em;color:#888;word-break:break-all;margin-bottom:8px;' }, url),
                         E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
-                            if (!confirm('Delete shortcut "' + label + '"?')) return;
+                            if (!confirm(_('Delete shortcut "%s"?').format(label))) return;
                             uci.load('wizard').then(function() { uci.remove('wizard', sid); return uci.save(); })
                                 .then(function() { return self.callSystemCommand('/usr/libexec/quickactions-netwizard/apply-shortcuts.sh', []).catch(function(){ return {}; }); })
-                                .then(function() { ui.addNotification('Deleted', label, 'info'); self.nsShow('shortcuts'); });
-                        } }, 'Delete')
+                                .then(function() { ui.addNotification(_('Deleted'), label, 'info'); self.nsShow('shortcuts'); });
+                        } }, _('Delete'))
                     ]));
                 });
-                if (secs.length === 0) grid.appendChild(E('p', { 'style': 'color:#888;' }, 'No shortcuts yet.'));
+                if (secs.length === 0) grid.appendChild(E('p', { 'style': 'color:#888;' }, _('No shortcuts yet.')));
 
                 var scIn = E('input', { 'id': 'ns-sc-key', 'placeholder': 'g', 'style': 'padding:6px 10px;border:1px solid #ccc;border-radius:4px;width:120px;' });
                 var urlIn = E('input', { 'id': 'ns-sc-url', 'placeholder': 'https://google.com', 'style': 'padding:6px 10px;border:1px solid #ccc;border-radius:4px;width:280px;' });
 
                 return E('div', {}, [
-                    E('h3', { 'style': 'margin-top:0;' }, 'Shortcuts (nginx + dnsmasq)'),
-                    E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Type shortcut + "/" in any browser on this network → redirects.'),
+                    E('h3', { 'style': 'margin-top:0;' }, _('Shortcuts (nginx + dnsmasq)')),
+                    E('p', { 'style': 'color:#888;font-size:0.9em;' }, _('Type shortcut + "/" in any browser on this network → redirects.')),
                     grid,
                     E('div', { 'style': 'margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;' }, [
                         scIn, E('span', {}, '→'), urlIn,
                         E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
                             var k = document.getElementById('ns-sc-key').value.trim();
                             var u = document.getElementById('ns-sc-url').value.trim();
-                            if (!k || !/^[a-zA-Z0-9_-]+$/.test(k)) { ui.addNotification('Error', 'Shortcut must be alphanumeric.', 'danger'); return; }
-                            if (!u || !/^https?:\/\//i.test(u)) { ui.addNotification('Error', 'URL must start with http(s)://', 'danger'); return; }
+                            if (!k || !/^[a-zA-Z0-9_-]+$/.test(k)) { ui.addNotification(_('Error'), _('Shortcut must be alphanumeric.'), 'danger'); return; }
+                            if (!u || !/^https?:\/\//i.test(u)) { ui.addNotification(_('Error'), _('URL must start with http(s)://'), 'danger'); return; }
                             uci.load('wizard').then(function() {
                                 var sid = 'sc_' + k + '_' + Date.now();
                                 uci.add('wizard', 'shortcuts', sid);
@@ -3412,15 +3410,15 @@ return view.extend({
                             }).then(function() {
                                 return self.callSystemCommand('/usr/libexec/quickactions-netwizard/apply-shortcuts.sh', []).catch(function(){ return {}; });
                             }).then(function() {
-                                ui.addNotification('Added', k + ' → ' + u, 'info');
+                                ui.addNotification(_('Added'), k + ' → ' + u, 'info');
                                 self.nsShow('shortcuts');
-                            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
-                        } }, 'Add')
+                            }).catch(function(err) { ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger'); });
+                        } }, _('Add'))
                     ])
                 ]);
             });
         }).catch(function() {
-            return E('div', { 'class': 'alert-message notice' }, 'Shortcuts require nginx. Install nginx package to enable.');
+            return E('div', { 'class': 'alert-message notice' }, _('Shortcuts require nginx. Install nginx package to enable.'));
         });
     },
 
@@ -3429,61 +3427,74 @@ return view.extend({
         var aggressiveMode = false;
 
         var backupBtn = E('button', { 'class': 'btn cbi-button cbi-button-action', 'click': function() {
-            ui.addNotification('Backing up', 'Creating backup...', 'info');
+            ui.addTimeLimitedNotification(_('Backing up'), _('Creating backup...'), 8000, 'info');
             self.callSystemCommand('/usr/libexec/quickactions-netwizard/backup.sh', []).then(function(r) {
                 var out = (r.stdout || '') + (r.stderr ? '\n' + r.stderr : '');
-                ui.addNotification('Backup complete', E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:10px;border-radius:4px;font-size:0.85em;' }, out), 'info');
-            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
-        } }, 'Backup Now');
+                if (r.code)
+                    return ui.addNotification(_('Backup failed'), E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#ff6b6b;padding:10px;border-radius:4px;font-size:0.85em;' }, out || _('Exit code: %s').format(r.code)), 'danger');
+                ui.addNotification(_('Backup complete'), E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:10px;border-radius:4px;font-size:0.85em;' }, out), 'info');
+            }).catch(function(err) { ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger'); });
+        } }, _('Backup Now'));
 
         var listBtn = E('button', { 'class': 'btn cbi-button', 'click': function() {
             self.callSystemCommand('/usr/libexec/quickactions-netwizard/list-backups.sh', []).then(function(r) {
-                var out = (r.stdout || '(none)').trim();
+                if (r.code)
+                    return ui.addNotification(_('Error'), (r.stderr || r.stdout || _('Exit code: %s').format(r.code)), 'danger');
+                var out = (r.stdout || _('(none)')).trim();
                 var ul = E('div', { 'style': 'margin-top:10px;' });
-                if (!out) ul.appendChild(E('div', { 'style': 'color:#888;' }, 'No backups yet.'));
+                if (!out) ul.appendChild(E('div', { 'style': 'color:#888;' }, _('No backups yet.')));
                 out.split('\n').forEach(function(line) {
                     if (!line.trim()) return;
                     ul.appendChild(E('div', { 'style': 'display:flex;gap:10px;align-items:center;padding:6px;border-bottom:1px solid rgba(0,0,0,0.06);' }, [
                         E('code', { 'style': 'flex:1;font-size:0.85em;' }, line),
                         E('button', { 'class': 'btn cbi-button cbi-button-action', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
-                            if (!confirm('Restore from ' + line + '?\n\nCurrent config will be saved as pre-restore backup first.')) return;
+                            if (!confirm(_('Restore from %s?').format(line) + '\n\n' + _('Current config will be saved as pre-restore backup first.'))) return;
                             self.callSystemCommand('/usr/libexec/quickactions-netwizard/restore.sh', [line]).then(function(rr) {
-                                ui.addNotification('Restored', E('pre', { 'style': 'text-align:left;white-space:pre-wrap;' }, (rr.stdout || '') + (rr.stderr ? '\n' + rr.stderr : '')), 'info');
+                                var out = (rr.stdout || '') + (rr.stderr ? '\n' + rr.stderr : '');
+                                if (rr.code)
+                                    return ui.addNotification(_('Restore failed'), E('pre', { 'style': 'text-align:left;white-space:pre-wrap;' }, out || _('Exit code: %s').format(rr.code)), 'danger');
+                                ui.addNotification(_('Restored'), E('pre', { 'style': 'text-align:left;white-space:pre-wrap;' }, out), 'info');
                             });
-                        } }, 'Restore')
+                        } }, _('Restore'))
                     ]));
                 });
-                ui.addNotification('Backups', ul, 'info');
+                ui.addNotification(_('Backups'), ul, 'info');
             });
-        } }, 'List Backups');
+        } }, _('List Backups'));
 
         var aggressiveSection = E('div', { 'style': 'margin-top:20px;padding:14px;border:1px solid rgba(220,53,69,0.4);border-radius:8px;background:rgba(220,53,69,0.06);' }, [
-            E('h4', { 'style': 'margin:0 0 8px 0;color:#dc3545;' }, '⚠️ Aggressive Mode (opt-in)'),
-            E('p', { 'style': 'font-size:0.9em;margin:0 0 12px 0;' }, 'Matches the original wizard: DELETES and RECREATES WAN, wan6, lan6, and the WAN firewall zone. Custom WAN routes / WAN firewall rules / WAN forwarding rules will be lost. A backup is taken automatically.'),
+            E('h4', { 'style': 'margin:0 0 8px 0;color:#dc3545;' }, _('⚠️ Aggressive Mode (opt-in)')),
+            E('p', { 'style': 'font-size:0.9em;margin:0 0 12px 0;' }, _('Matches the original wizard: DELETES and RECREATES WAN, wan6, lan6, and the WAN firewall zone. Custom WAN routes / WAN firewall rules / WAN forwarding rules will be lost. A backup is taken automatically.')),
             E('label', { 'style': 'display:flex;align-items:center;gap:8px;cursor:pointer;' }, [
                 E('input', { 'type': 'checkbox', 'id': 'ns-adv-agg', 'change': function() { aggressiveMode = this.checked; } }),
-                E('strong', {}, 'I understand — rebuild my network config from scratch')
+                E('strong', {}, _('I understand — rebuild my network config from scratch'))
             ]),
             E('button', { 'class': 'btn cbi-button cbi-button-action important', 'style': 'margin-top:12px;background-color:#dc3545;', 'click': function() {
-                if (!aggressiveMode) { ui.addNotification('Error', 'Check the box above first.', 'danger'); return; }
+                if (!aggressiveMode) { ui.addNotification(_('Error'), _('Check the box above first.'), 'danger'); return; }
                 var proto = uci.get('wizard', 'default', 'wan_proto') || 'dhcp';
                 var lanIp = getCurrentLanIp();
                 var pu = uci.get('network', 'wan', 'username') || '';
                 var pp = uci.get('network', 'wan', 'password') || '';
-                if (!confirm('AGGRESSIVE REBUILD\n\nMode: ' + proto + '\nLAN: ' + lanIp + '\nPPPoE user: ' + (pu || '(none)') + '\n\nBackup first. Proceed?')) return;
-                ui.addNotification('Running', 'Aggressive apply in progress...', 'info');
+                if (!confirm(_('AGGRESSIVE REBUILD') + '\n\n' +
+                    _('Mode: %s').format(proto) + '\n' +
+                    _('LAN: %s').format(lanIp) + '\n' +
+                    _('PPPoE user: %s').format(pu || _('(none)')) + '\n\n' +
+                    _('Backup first. Proceed?'))) return;
+                ui.addTimeLimitedNotification(_('Running'), _('Aggressive apply in progress...'), 8000, 'info');
                 self.callSystemCommand('/usr/libexec/quickactions-netwizard/apply-aggressive.sh', [proto, lanIp, pu, pp]).then(function(r) {
                     var out = (r.stdout || '') + (r.stderr ? '\n' + r.stderr : '');
-                    ui.addNotification('Complete', E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:10px;border-radius:4px;font-size:0.85em;' }, out), 'info');
+                    if (r.code)
+                        return ui.addNotification(_('Failed'), E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#ff6b6b;padding:10px;border-radius:4px;font-size:0.85em;' }, out || _('Exit code: %s').format(r.code)), 'danger');
+                    ui.addNotification(_('Complete'), E('pre', { 'style': 'text-align:left;white-space:pre-wrap;background:#1e1e1e;color:#00ff00;padding:10px;border-radius:4px;font-size:0.85em;' }, out), 'info');
                 }).catch(function(err) {
-                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                 });
-            } }, 'Apply Aggressive Rebuild')
+            } }, _('Apply Aggressive Rebuild'))
         ]);
 
         return E('div', {}, [
-            E('h3', { 'style': 'margin-top:0;' }, 'Advanced'),
-            E('p', { 'style': 'color:#888;font-size:0.9em;' }, 'Backups, restore, opt-in aggressive rebuild.'),
+            E('h3', { 'style': 'margin-top:0;' }, _('Advanced')),
+            E('p', { 'style': 'color:#888;font-size:0.9em;' }, _('Backups, restore, opt-in aggressive rebuild.')),
             E('div', { 'style': 'display:flex;gap:10px;flex-wrap:wrap;' }, [backupBtn, listBtn]),
             aggressiveSection
         ]);
@@ -3491,36 +3502,36 @@ return view.extend({
 
     renderConfigForm: function() {
         var self = this;
-        var m = new form.Map('quickactions', 'Quick Actions Configuration', 'Manage all sections. Use Order field to control sequence (lower = first).');
-        var s = m.section(form.NamedSection, 'global', 'settings', 'Global Settings');
+        var m = new form.Map('quickactions', _('Quick Actions Configuration'), _('Manage all sections. Use Order field to control sequence (lower = first).'));
+        var s = m.section(form.NamedSection, 'global', 'settings', _('Global Settings'));
         s.anonymous = true;
-        var o = s.option(form.Value, 'poll_interval', 'Polling Interval (seconds)');
+        var o = s.option(form.Value, 'poll_interval', _('Polling Interval (seconds)'));
         o.datatype = 'integer'; o.placeholder = '5';
-        o = s.option(form.ListValue, 'design_style', 'Button Style');
-        o.value('flat', 'Modern Flat'); o.value('3d', 'Tactile 3D'); o.default = '3d';
+        o = s.option(form.ListValue, 'design_style', _('Button Style'));
+        o.value('flat', _('Modern Flat')); o.value('3d', _('Tactile 3D')); o.default = '3d';
 
-        var s2 = m.section(form.GridSection, 'essential', 'Essential Buttons', 'Reorder field controls display order.');
+        var s2 = m.section(form.GridSection, 'essential', _('Essential Buttons'), _('Reorder field controls display order.'));
         s2.anonymous = true; s2.addremove = true;
-        o = s2.option(form.Value, 'order', 'Order'); o.datatype = 'integer'; o.placeholder = '10';
-        s2.option(form.Value, 'label', 'Label');
-        o = s2.option(form.Value, 'icon', 'Icon / Emoji'); o.placeholder = '🔄';
-        o = s2.option(form.Value, 'command', 'Shell Command'); o.placeholder = '/sbin/reboot';
-        s2.option(form.Flag, 'confirm', 'Require Confirmation');
+        o = s2.option(form.Value, 'order', _('Order')); o.datatype = 'integer'; o.placeholder = '10';
+        s2.option(form.Value, 'label', _('Label'));
+        o = s2.option(form.Value, 'icon', _('Icon / Emoji')); o.placeholder = '🔄';
+        o = s2.option(form.Value, 'command', _('Shell Command')); o.placeholder = '/sbin/reboot';
+        s2.option(form.Flag, 'confirm', _('Require Confirmation'));
 
-        var s3 = m.section(form.GridSection, 'mapping', 'Service Mappings', 'Map keywords to init services.');
+        var s3 = m.section(form.GridSection, 'mapping', _('Service Mappings'), _('Map keywords to init services.'));
         s3.anonymous = true; s3.addremove = true;
-        o = s3.option(form.Value, 'order', 'Order'); o.datatype = 'integer';
-        s3.option(form.Value, 'keyword', 'Label Keyword');
-        s3.option(form.Value, 'service', 'Target Service');
-        o = s3.option(form.Value, 'icon', 'Icon / Emoji'); o.placeholder = '⚙️';
-        s3.option(form.Flag, 'dangerous', 'Require Confirmation');
+        o = s3.option(form.Value, 'order', _('Order')); o.datatype = 'integer';
+        s3.option(form.Value, 'keyword', _('Label Keyword'));
+        s3.option(form.Value, _('service'), _('Target Service'));
+        o = s3.option(form.Value, 'icon', _('Icon / Emoji')); o.placeholder = '⚙️';
+        s3.option(form.Flag, 'dangerous', _('Require Confirmation'));
 
-        var s4 = m.section(form.GridSection, 'shortcut', 'Navigation Shortcuts', 'Buttons that jump to other LuCI pages.');
+        var s4 = m.section(form.GridSection, 'shortcut', _('Navigation Shortcuts'), _('Buttons that jump to other LuCI pages.'));
         s4.anonymous = true; s4.addremove = true;
-        o = s4.option(form.Value, 'order', 'Order'); o.datatype = 'integer';
-        s4.option(form.Value, 'label', 'Label');
-        o = s4.option(form.Value, 'icon', 'Icon / Emoji'); o.placeholder = '🔗';
-        o = s4.option(form.Value, 'path', 'LuCI Path'); o.placeholder = 'admin/network/firewall';
+        o = s4.option(form.Value, 'order', _('Order')); o.datatype = 'integer';
+        s4.option(form.Value, 'label', _('Label'));
+        o = s4.option(form.Value, 'icon', _('Icon / Emoji')); o.placeholder = '🔗';
+        o = s4.option(form.Value, 'path', _('LuCI Path')); o.placeholder = 'admin/network/firewall';
 
         self.configMap = m;
         return m.render();
@@ -3585,7 +3596,7 @@ return view.extend({
             return Promise.resolve(gw.load()).then(function() {
                 return gw.render();
             }).catch(function(err) {
-                return E('div', { 'class': 'alert-message error', 'style': 'padding:20px;' }, 'Guest WiFi form error: ' + (err && err.message ? err.message : String(err)));
+                return E('div', { 'class': 'alert-message error', 'style': 'padding:20px;' }, _('Guest WiFi form error: ') + (err && err.message ? err.message : String(err)));
             });
         }
 
@@ -3595,20 +3606,20 @@ return view.extend({
         var tabContent = E('div');
         var tabButtons = {};
         var tabs = [
-            { id: 'dashboard', label: 'Dashboard' },
-            { id: 'essential', label: 'Essential' },
-            { id: 'tools', label: 'Tools' },
-            { id: 'logs', label: 'Logs' },
-            { id: 'services', label: 'Services' },
-            { id: 'hotplug', label: 'Hotplug' },
-            { id: 'crontab', label: 'Crontab' },
-            { id: 'guestwifi', label: 'Guest WiFi' },
-            { id: 'ttyd', label: 'Terminal' },
-            { id: 'taskplan', label: 'Task Plan' },
-            { id: 'netwizard', label: 'Network Setup' },
-            { id: 'command', label: 'Command' },
-            { id: 'dependencies', label: 'Dependencies' },
-            { id: 'config', label: 'Configuration' }
+            { id: 'dashboard', label: _('Dashboard') },
+            { id: 'essential', label: _('Essential') },
+            { id: 'tools', label: _('Tools') },
+            { id: 'logs', label: _('Logs') },
+            { id: 'services', label: _('Services') },
+            { id: 'hotplug', label: _('Hotplug') },
+            { id: 'crontab', label: _('Crontab') },
+            { id: 'guestwifi', label: _('Guest WiFi') },
+            { id: 'ttyd', label: _('Terminal') },
+            { id: 'taskplan', label: _('Task Plan') },
+            { id: 'netwizard', label: _('Network Setup') },
+            { id: 'command', label: _('Command') },
+            { id: 'dependencies', label: _('Dependencies') },
+            { id: 'config', label: _('Configuration') }
         ];
         function showTab(id) {
             self.activeTab = id;
@@ -3642,9 +3653,9 @@ return view.extend({
             else if (id === 'logs') tabContent.appendChild(self.renderLogs());
             else if (id === 'services') tabContent.appendChild(self.renderServices());
             else if (id === 'hotplug') {
-                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading hotplug form...'));
+                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading hotplug form...')));
                 Promise.resolve(self.renderHotplug()).then(function(node) { tabContent.innerHTML = ''; tabContent.appendChild(node); })
-                    .catch(function(err) { tabContent.innerHTML = ''; tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Hotplug error: ' + (err && err.message ? err.message : String(err)))); });
+                    .catch(function(err) { tabContent.innerHTML = ''; tabContent.appendChild(E('div', { 'class': 'alert-message error' }, _('Hotplug error: ') + (err && err.message ? err.message : String(err)))); });
             }
             else if (id === 'crontab') tabContent.appendChild(self.renderCrontabWizard());
             else if (id === 'guestwifi') {
@@ -3652,12 +3663,12 @@ return view.extend({
                 var baseUrl = window.location.pathname;
                 var iframeUrl = baseUrl + (baseUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=guestwifi';
                 var infoBar = E('div', { 'style': 'background:rgba(30,144,255,0.08);border:1px solid rgba(30,144,255,0.2);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:0.85em;display:flex;align-items:center;gap:12px;flex-wrap:wrap;' }, [
-                    E('span', { 'style': 'flex:1;' }, 'Guest WiFi runs in an isolated frame so this tab bar stays visible. Save & Apply works normally inside the frame.'),
-                    E('a', { 'href': iframeUrl, 'target': '_blank', 'style': 'color:#1e90ff;font-weight:bold;' }, 'Open in new tab ↗'),
+                    E('span', { 'style': 'flex:1;' }, _('Guest WiFi runs in an isolated frame so this tab bar stays visible. Save & Apply works normally inside the frame.')),
+                    E('a', { 'href': iframeUrl, 'target': '_blank', 'style': 'color:#1e90ff;font-weight:bold;' }, _('Open in new tab ↗')),
                     E('button', { 'class': 'btn cbi-button', 'style': 'padding:2px 10px;font-size:0.85em;', 'click': function() {
                         var f = document.getElementById('qa-guestwifi-iframe');
                         if (f) { var s = f.src; f.src = 'about:blank'; setTimeout(function(){ f.src = s; }, 50); }
-                    } }, '↻ Reload')
+                    } }, _('↻ Reload'))
                 ]);
                 var ifr = document.createElement('iframe');
                 ifr.id = 'qa-guestwifi-iframe';
@@ -3828,7 +3839,7 @@ return view.extend({
             }
             else if (id === 'ttyd') {
                 tabContent.innerHTML = '';
-                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading ttyd configuration...'));
+                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading ttyd configuration...')));
                 Promise.resolve(typeof uci.unload === 'function' ? uci.unload('ttyd') : null).then(function() {
                     return uci.load('ttyd');
                 }).then(function() {
@@ -3838,24 +3849,24 @@ return view.extend({
                     tabContent.appendChild(node);
                 }).catch(function(err) {
                     tabContent.innerHTML = '';
-                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'ttyd error: ' + (err && err.message ? err.message : String(err))));
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, _('ttyd error: ') + (err && err.message ? err.message : String(err))));
                 });
             }
             else if (id === 'taskplan') tabContent.appendChild(self.renderTaskPlan());
             else if (id === 'netwizard') {
-                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading network config...'));
+                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading network config...')));
                 Promise.resolve(self.renderNetworkSetup()).then(function(node) {
                     tabContent.innerHTML = '';
                     tabContent.appendChild(node);
                 }).catch(function(err) {
                     tabContent.innerHTML = '';
-                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Network Setup error: ' + (err && err.message ? err.message : String(err))));
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, _('Network Setup error: ') + (err && err.message ? err.message : String(err))));
                 });
             }
             else if (id === 'command') tabContent.appendChild(self.renderCommand());
             else if (id === 'dependencies') tabContent.appendChild(self.renderDependencies());
             else if (id === 'config') {
-                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, 'Loading configuration...'));
+                tabContent.appendChild(E('p', { 'style': 'color:#888;padding:20px;' }, _('Loading configuration...')));
                 self.renderConfigForm().then(function(node) {
                     tabContent.innerHTML = '';
                     tabContent.appendChild(node);
@@ -3863,29 +3874,29 @@ return view.extend({
                     // Add our own Save / Save & Apply / Reset buttons
                     var btnRow = E('div', { 'class': 'qa-page-actions', 'style': 'margin-top:20px;padding-top:15px;border-top:1px solid rgba(0,0,0,0.08);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;' }, [
                         E('button', { 'class': 'btn cbi-button cbi-button-reset', 'click': function() {
-                            if (!confirm('Discard unsaved changes to this tab?')) return;
+                            if (!confirm(_('Discard unsaved changes to this tab?'))) return;
                             self.switchTab('config');
                         } }, _('Reset')),
                         E('button', { 'class': 'btn cbi-button cbi-button-save', 'click': function() {
                             var map = self.configMap;
-                            if (!map) { ui.addNotification('Error', 'Form not ready', 'danger'); return; }
+                            if (!map) { ui.addNotification(_('Error'), _('Form not ready'), 'danger'); return; }
                             map.save().then(function() {
-                                ui.addNotification('Saved', 'Configuration saved to memory. Use the yellow bar at the top to apply.', 'info');
+                                ui.addNotification(_('Saved'), _('Configuration saved to memory. Use the yellow bar at the top to apply.'), 'info');
                                 self.refreshPendingCount();
-                            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                            }).catch(function(err) { ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger'); });
                         } }, _('Save')),
                         E('button', { 'class': 'btn cbi-button cbi-button-apply', 'click': function() {
                             var map = self.configMap;
-                            if (!map) { ui.addNotification('Error', 'Form not ready', 'danger'); return; }
+                            if (!map) { ui.addNotification(_('Error'), _('Form not ready'), 'danger'); return; }
                             map.save().then(function() {
                                 return self.pendingApply();
-                            }).catch(function(err) { ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger'); });
+                            }).catch(function(err) { ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger'); });
                         } }, _('Save & Apply'))
                     ]);
                     tabContent.appendChild(btnRow);
                 }).catch(function(err) {
                     tabContent.innerHTML = '';
-                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, 'Form error: ' + (err && err.message ? err.message : String(err))));
+                    tabContent.appendChild(E('div', { 'class': 'alert-message error' }, _('Form error: ') + (err && err.message ? err.message : String(err))));
                 });
             }
         }
@@ -3899,12 +3910,12 @@ return view.extend({
             E('span', { 'id': 'qa-pending-count', 'style': 'font-weight:bold;' }, ''),
             E('span', { 'style': 'flex:1;' }),
             E('button', { 'class': 'btn cbi-button cbi-button-reset', 'click': function() {
-                if (!confirm('Discard ALL pending UCI changes?')) return;
+                if (!confirm(_('Discard ALL pending UCI changes?'))) return;
                 Promise.resolve(ui.changes.revert()).then(function() {
-                    ui.addNotification('Reverted', 'All pending changes discarded.', 'info');
+                    ui.addNotification(_('Reverted'), _('All pending changes discarded.'), 'info');
                     self.refreshPendingCount();
                 }).catch(function(err) {
-                    ui.addNotification('Error', (err && err.message) ? err.message : String(err), 'danger');
+                    ui.addNotification(_('Error'), (err && err.message) ? err.message : String(err), 'danger');
                 });
             } }, _('Discard All')),
             E('button', { 'class': 'btn cbi-button cbi-button-apply important', 'click': function() {
@@ -3913,8 +3924,8 @@ return view.extend({
         ]);
 
         var container = E('div', { 'class': 'cbi-map' }, [
-            E('h2', { 'style': 'margin-bottom:4px;' }, 'Quick Actions'),
-            E('p', { 'style': 'margin-top:0;margin-bottom:20px;color:#888;font-style:italic;font-size:0.95em;' }, 'Live Status, Commands & Controls'),
+            E('h2', { 'style': 'margin-bottom:4px;' }, _('Quick Actions')),
+            E('p', { 'style': 'margin-top:0;margin-bottom:20px;color:#888;font-style:italic;font-size:0.95em;' }, _('Live Status, Commands & Controls')),
             pendingBar,
             tabBar, tabContent
         ]);
@@ -3989,7 +4000,7 @@ return view.extend({
         }).catch(function(err) {
             var msg = (err && err.message) ? err.message : String(err);
             if (/No data|code 5/i.test(msg)) return;
-            ui.addNotification(null, E('p', {}, 'Apply failed: ' + msg), 'danger');
+            ui.addNotification(null, E('p', {}, _('Apply failed: %s').format(msg)), 'danger');
             throw err;
         });
     },
